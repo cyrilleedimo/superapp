@@ -22,7 +22,11 @@ Write-Host "Serveur prêt." -ForegroundColor Green
 
 $tunnelLog = Join-Path $logs "tunnel.log"
 if (Test-Path $tunnelLog) { Remove-Item $tunnelLog }
-$tunnel = Start-Process -FilePath "cloudflared" -ArgumentList "tunnel", "--no-autoupdate", "--url", "http://localhost:8080" -PassThru -WindowStyle Minimized `
+# cloudflared peut ne pas être dans le PATH juste après son installation.
+$cf = (Get-Command cloudflared -ErrorAction SilentlyContinue).Source
+if (-not $cf) { $cf = @("${env:ProgramFiles(x86)}\cloudflared\cloudflared.exe", "$env:ProgramFiles\cloudflared\cloudflared.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1 }
+if (-not $cf) { Write-Host "cloudflared introuvable : relance l'installation." -ForegroundColor Red; exit 1 }
+$tunnel = Start-Process -FilePath $cf -ArgumentList "tunnel", "--no-autoupdate", "--url", "http://localhost:8080" -PassThru -WindowStyle Minimized `
   -RedirectStandardError $tunnelLog
 
 $url = $null
