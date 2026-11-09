@@ -21,6 +21,7 @@ dependencies:
   flutter_map: ^7.0.2            # carte des courses (tuiles : [MAPS PROVIDER])
   latlong2: ^0.9.1
   geolocator: ^13.0.2            # position GPS (Android + Windows)
+  package_info_plus: ^8.1.2      # version installée, pour la vérification de mise à jour
 
 dev_dependencies:
   flutter_test:

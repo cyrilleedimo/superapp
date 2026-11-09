@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/api/api_client.dart';
 import '../../core/theme/tokens.dart';
+import '../../core/update_checker.dart';
 import '../../widgets/common.dart';
 import '../marketplace/marketplace_repository.dart';
 
@@ -24,11 +25,23 @@ const _services = [
   _Service('Voyages', Icons.flight_outlined, '/travel'),
 ];
 
-class HomeScreen extends ConsumerWidget {
+class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends ConsumerState<HomeScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // Une seule fois par ouverture de l'app, une fois l'écran réellement affiché.
+    WidgetsBinding.instance.addPostFrameCallback((_) => maybeCheckForUpdate(context));
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final t = Theme.of(context).textTheme;
     final feed = ref.watch(feedProvider);
     final wide = MediaQuery.sizeOf(context).width >= kDesktopBreakpoint;
