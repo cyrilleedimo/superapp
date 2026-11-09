@@ -22,7 +22,7 @@ dependencies:
   latlong2: ^0.9.1
   geolocator: ^13.0.2            # position GPS (Android + Windows)
   package_info_plus: ^8.1.2      # version installée, pour la vérification de mise à jour
-  fl_chart: ^1.2.0               # graphiques du tableau de bord admin (tendances)
+  fl_chart: ^0.69.2              # graphiques du tableau de bord admin (tendances)
 
 dev_dependencies:
   flutter_test:
