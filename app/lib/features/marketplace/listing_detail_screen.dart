@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/api/api_client.dart';
 import '../../core/format.dart';
+import '../../core/providers.dart';
 import '../../core/theme/tokens.dart';
 import '../../widgets/common.dart';
 import 'marketplace_repository.dart';
@@ -131,11 +132,19 @@ class _Actions extends StatelessWidget {
     }
     return Row(children: [
       Expanded(
-        child: OutlinedButton(
-          // Messagerie et offres : Phase 2.
-          onPressed: () => ScaffoldMessenger.of(context)
-              .showSnackBar(const SnackBar(content: Text('Les offres arrivent bientôt.'))),
-          child: const Text('Faire une offre'),
+        child: Consumer(
+          builder: (context, ref, _) => OutlinedButton(
+            // Ouvre (ou retrouve) la conversation avec le vendeur ; les offres se font dans le chat.
+            onPressed: () async {
+              try {
+                final c = await ref.read(apiClientProvider).post('/conversations', body: {'listingId': l.id});
+                if (context.mounted) context.push('/chat/${c['id']}');
+              } on ApiException catch (e) {
+                if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.userMessage)));
+              }
+            },
+            child: const Text('Message / offre'),
+          ),
         ),
       ),
       const SizedBox(width: 10),

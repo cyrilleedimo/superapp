@@ -5,9 +5,9 @@ import 'core/config.dart';
 import 'core/router.dart';
 import 'core/theme/app_theme.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  AppConfig.assertSecureInRelease(); // pas d'API en http en production
+  await AppConfig.load(); // adresse du serveur choisie par l'utilisateur, s'il y en a une
   runApp(const ProviderScope(child: SuperApp()));
 }
 

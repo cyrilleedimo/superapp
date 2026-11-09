@@ -41,6 +41,7 @@ class ApiException implements Exception {
         'order_not_confirmable' => 'Cette commande ne peut pas encore être confirmée.',
         'own_listing' || 'cannot_buy_own_listing' => 'C\'est ta propre annonce.',
         'validation_failed' => 'Vérifie les informations saisies.',
+        'server_not_configured' => 'Adresse du serveur non configurée. Touche « Serveur » en bas de l\'écran de connexion.',
         'network' => 'Connexion impossible. Vérifie ton réseau puis réessaie.',
         _ => 'Une erreur est survenue. Réessaie.',
       };
@@ -60,6 +61,10 @@ class ApiClient {
         )) {
     dio.interceptors.add(QueuedInterceptorsWrapper(
       onRequest: (options, handler) async {
+        if (!AppConfig.isConfigured) {
+          return handler.reject(DioException(requestOptions: options, error: 'server_not_configured'));
+        }
+        options.baseUrl = AppConfig.apiUrl; // l'adresse peut changer depuis l'écran de connexion
         final t = await _tokens.access();
         if (t != null) options.headers['Authorization'] = 'Bearer $t';
         handler.next(options);
@@ -111,6 +116,7 @@ class ApiClient {
       if (data is Map && data['error'] is String) {
         throw ApiException(data['error'] as String, status: e.response?.statusCode, message: data['message'] as String?);
       }
+      if (e.error == 'server_not_configured') throw ApiException('server_not_configured');
       throw ApiException('network', status: e.response?.statusCode);
     }
   }

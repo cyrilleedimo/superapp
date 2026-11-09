@@ -26,6 +26,19 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^5.0.0
+  flutter_launcher_icons: ^0.14.1  # génère les icônes Android (adaptatives) et Windows
+
+flutter_launcher_icons:
+  image_path: "assets/icon.png"
+  android: true
+  ios: false
+  min_sdk_android: 31
+  adaptive_icon_background: "#2B3CF0"
+  adaptive_icon_foreground: "assets/icon_foreground.png"
+  windows:
+    generate: true
+    image_path: "assets/icon.png"
+    icon_size: 256
 
 flutter:
   uses-material-design: true

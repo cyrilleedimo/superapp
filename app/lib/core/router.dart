@@ -5,11 +5,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../features/account/account_screens.dart';
 import '../features/auth/auth_screens.dart';
+import '../features/carpool/carpool_screens.dart';
 import '../features/checkout/checkout_screen.dart';
 import '../features/home/home_screen.dart';
 import '../features/marketplace/explore_screen.dart';
 import '../features/marketplace/listing_detail_screen.dart';
-import '../features/preview/preview_screens.dart';
+import '../features/messages/messages_screens.dart';
+import '../features/orders/orders_screens.dart';
+import '../features/rides/rides_screens.dart';
+import '../features/stores/stores_screens.dart';
+import '../features/travel/travel_screen.dart';
 import 'providers.dart';
 import 'theme/tokens.dart';
 
@@ -22,28 +27,45 @@ class _SessionListenable extends ChangeNotifier {
 
 final routerProvider = Provider<GoRouter>((ref) {
   const publicRoutes = {'/login', '/register', '/verify'};
+  GoRoute page(String path, Widget Function(GoRouterState s) build) =>
+      GoRoute(path: path, builder: (_, s) => build(s));
+
   return GoRouter(
     initialLocation: '/',
     refreshListenable: _SessionListenable(ref),
     redirect: (context, state) {
       final session = ref.read(sessionProvider);
       final loc = state.matchedLocation;
-      if (session == SessionState.unknown) return null; // en cours de restauration
+      if (session == SessionState.unknown) return null; // restauration en cours
       final isPublic = publicRoutes.contains(loc);
       if (session == SessionState.signedOut && !isPublic) return '/login';
       if (session == SessionState.signedIn && isPublic) return '/';
       return null;
     },
     routes: [
-      GoRoute(path: '/login', builder: (_, __) => const LoginScreen()),
-      GoRoute(path: '/register', builder: (_, __) => const RegisterScreen()),
-      GoRoute(path: '/verify', builder: (_, s) => VerifyScreen(phone: s.uri.queryParameters['phone'] ?? '')),
-      GoRoute(path: '/listing/:id', builder: (_, s) => ListingDetailScreen(id: s.pathParameters['id']!)),
-      GoRoute(path: '/checkout/:id', builder: (_, s) => CheckoutScreen(listingId: s.pathParameters['id']!)),
-      GoRoute(path: '/sell', builder: (_, __) => const SellScreen()),
-      GoRoute(path: '/rides', builder: (_, __) => const RidesScreen()),
-      GoRoute(path: '/travel', builder: (_, __) => const TravelScreen()),
-      GoRoute(path: '/soon/:name', builder: (_, s) => SoonScreen(name: s.pathParameters['name']!)),
+      page('/login', (_) => const LoginScreen()),
+      page('/register', (_) => const RegisterScreen()),
+      page('/verify', (s) => VerifyScreen(phone: s.uri.queryParameters['phone'] ?? '')),
+      page('/listing/:id', (s) => ListingDetailScreen(id: s.pathParameters['id']!)),
+      page('/checkout/:id', (s) => CheckoutScreen(listingId: s.pathParameters['id']!, offerId: s.uri.queryParameters['offer'])),
+      page('/pay/:id', (s) => PayOrderScreen(orderId: s.pathParameters['id']!)),
+      page('/orders', (_) => const MyOrdersScreen()),
+      page('/orders/:id', (s) => OrderDetailScreen(id: s.pathParameters['id']!)),
+      page('/sell', (_) => const SellScreen()),
+      page('/chat/:id', (s) => ChatScreen(conversationId: s.pathParameters['id']!)),
+      page('/rides', (_) => const TransportScreen()),
+      page('/carpool', (_) => const TransportScreen(initialTab: 1)),
+      page('/trips/new', (_) => const NewTripScreen()),
+      page('/trips/mine', (_) => const MyTripsScreen()),
+      page('/driver', (_) => const DriverScreen()),
+      page('/stores/:kind', (s) => StoresScreen(kind: s.pathParameters['kind'] == 'shop' ? 'shop' : 'restaurant')),
+      page('/store/:id', (s) => StoreScreen(id: s.pathParameters['id']!)),
+      page('/merchant', (_) => const MyStoresScreen()),
+      page('/merchant/:id', (s) => MerchantStoreScreen(id: s.pathParameters['id']!)),
+      page('/travel', (_) => const TravelScreen()),
+      page('/notifications', (_) => const NotificationsScreen()),
+      page('/payouts', (_) => const PayoutsScreen()),
+      page('/admin', (_) => const AdminScreen()),
       StatefulShellRoute.indexedStack(
         builder: (context, state, shell) => _AdaptiveShell(shell: shell),
         branches: [
@@ -51,9 +73,7 @@ final routerProvider = Provider<GoRouter>((ref) {
           StatefulShellBranch(routes: [
             GoRoute(path: '/explore', builder: (_, s) => ExploreScreen(initialQuery: s.uri.queryParameters['q'] ?? '')),
           ]),
-          StatefulShellBranch(routes: [
-            GoRoute(path: '/messages', builder: (_, __) => const SoonScreen(name: 'messages')),
-          ]),
+          StatefulShellBranch(routes: [GoRoute(path: '/messages', builder: (_, __) => const ConversationsScreen())]),
           StatefulShellBranch(routes: [GoRoute(path: '/profile', builder: (_, __) => const ProfileScreen())]),
         ],
       ),
@@ -78,6 +98,7 @@ class _AdaptiveShell extends StatelessWidget {
   Widget build(BuildContext context) {
     final wide = MediaQuery.sizeOf(context).width >= kDesktopBreakpoint;
     final sellButton = FloatingActionButton(
+      heroTag: 'sell',
       tooltip: 'Vendre un article',
       backgroundColor: LumoColors.action,
       foregroundColor: Colors.white,
@@ -106,7 +127,7 @@ class _AdaptiveShell extends StatelessWidget {
     }
     return Scaffold(
       body: shell,
-      floatingActionButton: sellButton,
+      floatingActionButton: shell.currentIndex == 0 || shell.currentIndex == 1 ? sellButton : null,
       bottomNavigationBar: NavigationBar(
         selectedIndex: shell.currentIndex,
         onDestinationSelected: _go,

@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/api/api_client.dart';
+import '../../core/config.dart';
 import '../../core/providers.dart';
 import '../../core/theme/tokens.dart';
 import '../../widgets/common.dart';
@@ -96,10 +97,36 @@ class _LoginScreenState extends ConsumerState<LoginScreen> with _Submitting<Logi
           FilledButton(onPressed: busy ? null : _submit, child: const Text('Se connecter')),
           const SizedBox(height: 12),
           TextButton(onPressed: () => context.go('/register'), child: const Text('Créer un compte')),
+          const SizedBox(height: 24),
+          TextButton.icon(
+            onPressed: _editServer,
+            icon: const Icon(Icons.dns_outlined, size: 18),
+            label: Text(AppConfig.isConfigured ? 'Serveur : ${AppConfig.apiUrl}' : 'Serveur : à configurer',
+                style: const TextStyle(fontSize: 12, color: LumoColors.slate)),
+          ),
         ],
       );
 
   void _submit() => run(() => ref.read(sessionProvider.notifier).login(toE164(_phone.text), _pwd.text));
+
+  Future<void> _editServer() async {
+    final c = TextEditingController(text: AppConfig.apiUrl.isEmpty ? 'https://' : AppConfig.apiUrl);
+    final url = await showDialog<String>(
+      context: context,
+      builder: (d) => AlertDialog(
+        title: const Text('Adresse du serveur'),
+        content: TextField(controller: c, keyboardType: TextInputType.url, decoration: const InputDecoration(hintText: 'https://api.exemple.com')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(d), child: const Text('Fermer')),
+          TextButton(onPressed: () => Navigator.pop(d, c.text), child: const Text('Enregistrer')),
+        ],
+      ),
+    );
+    c.dispose();
+    if (url == null) return;
+    final err = await AppConfig.setServer(url);
+    if (mounted) setState(() => error = err);
+  }
 }
 
 class RegisterScreen extends ConsumerStatefulWidget {

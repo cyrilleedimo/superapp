@@ -1,0 +1,51 @@
+# Déploiement du serveur en un clic sur Render (https://render.com) — « Blueprint ».
+# Render → New → Blueprint → choisir ce dépôt. Les variables marquées sync:false
+# te seront demandées à la création. Plans et tarifs : voir render.com/pricing.
+#
+# MODE PILOTE : NODE_ENV=development → les codes SMS s'affichent dans les journaux
+# du serveur (pas encore de fournisseur SMS). Passer en production exige
+# [SMS PROVIDER] branché + PAYMENT_PROVIDER=notchpay (voir docs/SECURITY.md).
+services:
+  - type: web
+    name: superapp-api
+    runtime: docker
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: development
+      - key: PORT
+        value: 8080
+      - key: TRUST_PROXY_HOPS
+        value: 1
+      - key: DATABASE_URL
+        fromDatabase:
+          name: superapp-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: BUYER_FEE_BPS          # ta décision : 500 = 5 %
+        sync: false
+      - key: PUBLIC_BASE_URL        # l'adresse https de ce service, ex. https://superapp-api.onrender.com
+        sync: false
+      - key: PAYMENT_CALLBACK_URL   # même adresse + /payments/return
+        sync: false
+      - key: PAYMENT_PROVIDER       # sandbox (aucun vrai paiement) ou notchpay
+        value: sandbox
+      - key: NOTCHPAY_API_KEY
+        sync: false
+      - key: NOTCHPAY_WEBHOOK_HASH
+        sync: false
+      - key: RIDE_BASE_XAF          # tarif VTC (vide = VTC désactivé)
+        sync: false
+      - key: RIDE_PER_KM_XAF
+        sync: false
+      # Les photos sont stockées sur le disque du service : elles sont perdues à chaque
+      # redéploiement sans disque persistant. Production : [OBJECT STORAGE].
+      - key: UPLOAD_DIR
+        value: /tmp/uploads
+
+databases:
+  - name: superapp-db
+    postgresMajorVersion: "16"

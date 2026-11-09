@@ -17,11 +17,11 @@ class _Service {
 
 const _services = [
   _Service('Seconde main', Icons.checkroom_outlined, '/explore', highlight: true),
-  _Service('Trajets', Icons.directions_car_outlined, '/rides'),
-  _Service('Repas', Icons.ramen_dining_outlined, '/soon/repas'),
-  _Service('Boutiques', Icons.shopping_bag_outlined, '/soon/boutiques'),
+  _Service('Course', Icons.local_taxi_outlined, '/rides'),
+  _Service('Covoiturage', Icons.directions_car_outlined, '/carpool'),
+  _Service('Repas', Icons.ramen_dining_outlined, '/stores/restaurant'),
+  _Service('Boutiques', Icons.shopping_bag_outlined, '/stores/shop'),
   _Service('Voyages', Icons.flight_outlined, '/travel'),
-  _Service('Colis', Icons.inventory_2_outlined, '/soon/colis'),
 ];
 
 class HomeScreen extends ConsumerWidget {
@@ -48,7 +48,7 @@ class HomeScreen extends ConsumerWidget {
                   IconButton(
                     tooltip: 'Notifications',
                     style: IconButton.styleFrom(backgroundColor: LumoColors.mist, minimumSize: const Size(44, 44)),
-                    onPressed: () {},
+                    onPressed: () => context.push('/notifications'),
                     icon: const Icon(Icons.notifications_none_rounded),
                   ),
                 ]),
@@ -131,7 +131,7 @@ class _ServiceTile extends StatelessWidget {
       borderRadius: BorderRadius.circular(16),
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
-        onTap: () => context.go(s.route),
+        onTap: () => s.route == '/explore' ? context.go(s.route) : context.push(s.route),
         child: Padding(
           padding: const EdgeInsets.all(12),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
