@@ -106,7 +106,7 @@ jobs:
           Remove-Item test\widget_test.dart -ErrorAction SilentlyContinue
           python tool/patch_platforms.py "Lumo"
       - run: flutter pub get
-      - run: dart run flutter_launcher_icons
+      - run: dart run flutter_launcher_icons -f tool/icons_windows.yaml
       - name: Compiler l'app Windows
         run: flutter build windows --release --build-name "$env:APP_VERSION" --build-number "${{ github.run_number }}" --dart-define=API_URL="${{ vars.API_URL }}"
       - name: Embarquer le runtime Visual C++ (l'app démarre même sans redistribuable installé)

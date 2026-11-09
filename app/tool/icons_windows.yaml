@@ -1,0 +1,9 @@
+# Icônes pour le job Windows (le dossier android/ n'y existe pas).
+flutter_launcher_icons:
+  image_path: "assets/icon.png"
+  android: false
+  ios: false
+  windows:
+    generate: true
+    image_path: "assets/icon.png"
+    icon_size: 256
