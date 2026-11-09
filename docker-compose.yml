@@ -1,0 +1,25 @@
+# Environnement local : PostgreSQL + API. `docker compose up --build`
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: superapp
+      POSTGRES_PASSWORD: superapp   # local uniquement
+      POSTGRES_DB: superapp
+    ports: ["5432:5432"]
+    volumes: [dbdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U superapp"]
+      interval: 3s
+      retries: 20
+  api:
+    build: ./backend
+    env_file: ./backend/.env
+    environment:
+      DATABASE_URL: postgres://superapp:superapp@db:5432/superapp
+      NODE_ENV: development
+    ports: ["8080:8080"]
+    depends_on:
+      db: { condition: service_healthy }
+volumes:
+  dbdata:

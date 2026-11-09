@@ -1,0 +1,34 @@
+{
+  "name": "superapp-backend",
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "tsx watch --env-file=.env src/server.ts",
+    "start": "node --env-file=.env dist/src/server.js",
+    "build": "tsc -p . && node -e \"require('fs').cpSync('db','dist/db',{recursive:true})\"",
+    "migrate": "tsx --env-file=.env src/migrate.ts",
+    "typecheck": "tsc -p . --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.4.1",
+    "@fastify/helmet": "^13.2.0",
+    "@fastify/rate-limit": "^11.2.2",
+    "@node-rs/argon2": "^2.2.2",
+    "fastify": "^5.12.8",
+    "jose": "^6.2.16",
+    "pg": "^8.23.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/pg": "^8.23.1",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0"
+  },
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=22"
+  }
+}
