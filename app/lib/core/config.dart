@@ -38,6 +38,10 @@ class AppConfig {
     return null;
   }
 
+  /// À passer à tout Image.network affichant une photo du serveur : évite la page
+  /// d'avertissement du plan gratuit ngrok (sinon elle remplacerait l'image).
+  static const mediaHeaders = {'ngrok-skip-browser-warning': 'true'};
+
   /// Tuiles de carte. Par défaut OpenStreetMap, dont la politique d'usage interdit le
   /// trafic intensif : en production, utiliser [MAPS PROVIDER] via --dart-define=MAP_TILE_URL=...
   static const tileUrl = String.fromEnvironment('MAP_TILE_URL',

@@ -1,5 +1,5 @@
-﻿# Démarre le serveur Ovia + le tunnel https Cloudflare, et affiche l'adresse à
-# coller dans l'app (écran de connexion → « Serveur »).
+﻿# Démarre le serveur Ovia + le tunnel https ngrok (adresse fixe), et affiche
+# l'adresse à coller dans l'app (écran de connexion → « Serveur »).
 # Laisse cette fenêtre ouverte : la fermer arrête le serveur pour tous les utilisateurs.
 $ErrorActionPreference = "Stop"
 $AppDir = $PSScriptRoot
@@ -7,6 +7,27 @@ $Desktop = [Environment]::GetFolderPath("Desktop")
 $DataRoot = Join-Path $Desktop "Base de données"
 $logs = Join-Path $env:LOCALAPPDATA "Ovia\logs"
 New-Item -ItemType Directory -Force -Path $logs | Out-Null
+
+# Adresse ngrok fixe (compte gratuit : un seul "domaine" de ce type, stable pour toujours).
+$NgrokDomain = "unpaired-each-womb.ngrok-free.dev"
+$PublicUrl = "https://$NgrokDomain"
+
+# L'adresse publique ne change plus (avant : cloudflared en changeait à chaque
+# démarrage, ce qui cassait les liens des photos et le retour de paiement).
+# On la (ré)écrit dans .env à chaque démarrage, pour que ça reste vrai même si
+# le fichier est un jour régénéré.
+$envFile = Join-Path $AppDir ".env"
+if (Test-Path $envFile) {
+  $lines = Get-Content $envFile -Encoding UTF8
+  function SetEnvLine([string[]]$lines, [string]$key, [string]$value) {
+    $pattern = "^$key="
+    if ($lines -match $pattern) { return $lines -replace $pattern, "$key=$value" }
+    return $lines + "$key=$value"
+  }
+  $lines = SetEnvLine $lines "PUBLIC_BASE_URL" $PublicUrl
+  $lines = SetEnvLine $lines "PAYMENT_CALLBACK_URL" "$PublicUrl/payments/return"
+  [IO.File]::WriteAllLines($envFile, $lines, (New-Object Text.UTF8Encoding($false)))
+}
 
 # Empêche la mise en veille tant que le serveur tourne.
 powercfg /change standby-timeout-ac 0 | Out-Null
@@ -21,37 +42,33 @@ for ($i = 0; $i -lt 60; $i++) {
 Write-Host "Serveur prêt." -ForegroundColor Green
 
 $tunnelLog = Join-Path $logs "tunnel.log"
-# cloudflared peut ne pas être dans le PATH juste après son installation.
-$cf = (Get-Command cloudflared -ErrorAction SilentlyContinue).Source
-if (-not $cf) { $cf = @("${env:ProgramFiles(x86)}\cloudflared\cloudflared.exe", "$env:ProgramFiles\cloudflared\cloudflared.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1 }
-if (-not $cf) { Write-Host "cloudflared introuvable : relance l'installation." -ForegroundColor Red; exit 1 }
+# ngrok peut ne pas être dans le PATH : on cherche aussi l'endroit où on l'installe nous-mêmes.
+$ng = (Get-Command ngrok -ErrorAction SilentlyContinue).Source
+if (-not $ng) { $ng = Join-Path $env:LOCALAPPDATA "Ovia\outils\ngrok.exe" }
+if (-not (Test-Path $ng)) { Write-Host "ngrok introuvable : relance l'installation." -ForegroundColor Red; exit 1 }
 
-# cloudflared ne réessaie pas tout seul s'il échoue à joindre le réseau Cloudflare au
-# premier essai : il s'arrête net, en laissant dans le journal une ligne d'erreur qui
-# CONTIENT elle aussi une adresse (https://api.trycloudflare.com) — une adresse invalide,
-# pas la vraie. On relance nous-mêmes jusqu'à 3 fois, et on ne retient que la vraie ligne
-# d'annonce de cloudflared (format « INF |  https://...trycloudflare.com  | »), jamais une
-# adresse trouvée ailleurs dans le journal.
+if (Test-Path $tunnelLog) { Remove-Item $tunnelLog }
+$tunnel = Start-Process -FilePath $ng -ArgumentList "http", "8080", "--url", "https://$NgrokDomain", "--log=stdout", "--log-format=logfmt" `
+  -PassThru -WindowStyle Minimized -RedirectStandardOutput $tunnelLog
+
+# L'adresse est fixe : on vérifie seulement que le tunnel est bien monté, via
+# l'API locale de ngrok (http://127.0.0.1:4040), avant de l'annoncer comme prête.
 $url = $null
-$tunnel = $null
-for ($attempt = 1; $attempt -le 3 -and -not $url; $attempt++) {
-  if (Test-Path $tunnelLog) { Remove-Item $tunnelLog }
-  $tunnel = Start-Process -FilePath $cf -ArgumentList "tunnel", "--no-autoupdate", "--url", "http://localhost:8080" -PassThru -WindowStyle Minimized `
-    -RedirectStandardError $tunnelLog
-
-  for ($i = 0; $i -lt 20 -and -not $url; $i++) {
-    Start-Sleep 2
-    if ($tunnel.HasExited) { break } # cet essai a échoué : on sort pour en relancer un nouveau
-    if (Test-Path $tunnelLog) {
-      $m = Select-String -Path $tunnelLog -Pattern "INF \|\s*(https://[a-z0-9-]+\.trycloudflare\.com)" | Select-Object -Last 1
-      if ($m) { $url = $m.Matches[0].Groups[1].Value }
-    }
-  }
-  if (-not $url -and -not $tunnel.HasExited) { Stop-Process -Id $tunnel.Id -ErrorAction SilentlyContinue }
+for ($i = 0; $i -lt 20 -and -not $url; $i++) {
+  Start-Sleep 2
+  if ($tunnel.HasExited) { break }
+  try {
+    $resp = Invoke-RestMethod "http://127.0.0.1:4040/api/tunnels" -TimeoutSec 2
+    if ($resp.tunnels | Where-Object { $_.public_url -like "https://$NgrokDomain*" }) { $url = "https://$NgrokDomain" }
+  } catch { }
 }
-if (-not $url) { Write-Host "Le tunnel n'a pas démarré après 3 essais. Vérifie ta connexion Internet et réessaie." -ForegroundColor Red; exit 1 }
+if (-not $url) {
+  Write-Host "Le tunnel ngrok n'a pas démarré. Vérifie ta connexion Internet, puis le journal :" -ForegroundColor Red
+  Write-Host "  $tunnelLog" -ForegroundColor Red
+  exit 1
+}
 
-[IO.File]::WriteAllText((Join-Path $DataRoot "ADRESSE-DU-SERVEUR.txt"), "$url`r`nAttention : cette adresse change à chaque redémarrage du serveur.`r`n", (New-Object Text.UTF8Encoding($false)))
+[IO.File]::WriteAllText((Join-Path $DataRoot "ADRESSE-DU-SERVEUR.txt"), "$url`r`nCette adresse est fixe : elle ne change plus au redémarrage.`r`n", (New-Object Text.UTF8Encoding($false)))
 Set-Clipboard $url
 Write-Host ""
 Write-Host "==========================================================" -ForegroundColor Green

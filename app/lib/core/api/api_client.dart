@@ -61,6 +61,9 @@ class ApiClient {
           connectTimeout: const Duration(seconds: 15),
           receiveTimeout: const Duration(seconds: 20),
           contentType: 'application/json',
+          // Évite la page d'avertissement du plan gratuit ngrok (sinon elle remplacerait
+          // la vraie réponse de l'API pour tout client qui n'est pas un navigateur).
+          headers: {'ngrok-skip-browser-warning': 'true'},
         )) {
     dio.interceptors.add(QueuedInterceptorsWrapper(
       onRequest: (options, handler) async {
@@ -101,8 +104,10 @@ class ApiClient {
     if (rt == null) return false;
     try {
       // Dio séparé : pas d'intercepteur, donc pas de boucle de renouvellement.
-      final r = await Dio(BaseOptions(baseUrl: AppConfig.apiUrl))
-          .post<Map<String, dynamic>>('/auth/refresh', data: {'refreshToken': rt});
+      final r = await Dio(BaseOptions(
+        baseUrl: AppConfig.apiUrl,
+        headers: {'ngrok-skip-browser-warning': 'true'},
+      )).post<Map<String, dynamic>>('/auth/refresh', data: {'refreshToken': rt});
       await _tokens.save(r.data!['accessToken'] as String, r.data!['refreshToken'] as String);
       return true;
     } catch (_) {

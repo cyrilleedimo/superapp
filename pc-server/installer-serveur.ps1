@@ -1,5 +1,6 @@
 ﻿# Installe le serveur Ovia sur ce PC Windows (à lancer une seule fois).
-#   - Node.js LTS et cloudflared via winget (l'installeur officiel de Windows)
+#   - Node.js LTS via winget (l'installeur officiel de Windows) et ngrok (téléchargement direct :
+#     son paquet winget s'est révélé peu fiable)
 #   - code du serveur dans %LOCALAPPDATA%\Ovia\serveur
 #   - moteur de base PostgreSQL embarqué dans %LOCALAPPDATA%\Ovia\base-systeme
 #     (hors du Bureau : OneDrive corromprait une base active en la synchronisant)
@@ -12,6 +13,7 @@ $ProgressPreference = "SilentlyContinue"
 $Desktop = [Environment]::GetFolderPath("Desktop")
 $DataRoot = Join-Path $Desktop "Base de données"
 $AppDir = Join-Path $env:LOCALAPPDATA "Ovia\serveur"
+$OutilsDir = Join-Path $env:LOCALAPPDATA "Ovia\outils"
 
 function Need($cmd, $wingetId) {
   if (-not (Get-Command $cmd -ErrorAction SilentlyContinue)) {
@@ -21,7 +23,29 @@ function Need($cmd, $wingetId) {
   }
 }
 Need node "OpenJS.NodeJS.LTS"
-Need cloudflared "Cloudflare.cloudflared"
+
+# ngrok (tunnel https à adresse fixe) : le paquet winget (Ngrok.Ngrok) échoue souvent
+# avec une erreur de fichier verrouillé. Téléchargement direct du zip officiel à la place.
+$ngrokExe = Join-Path $OutilsDir "ngrok.exe"
+if (-not (Test-Path $ngrokExe)) {
+  Write-Host "Téléchargement de ngrok…"
+  New-Item -ItemType Directory -Force -Path $OutilsDir | Out-Null
+  $ngrokZip = Join-Path $env:TEMP "ngrok.zip"
+  if (Test-Path $ngrokZip) { Remove-Item $ngrokZip -Force }
+  # Start-BitsTransfer reprend la progression déjà faite au lieu de repartir de
+  # zéro : plus fiable que curl/Invoke-WebRequest sur une connexion lente.
+  Start-BitsTransfer -Source "https://bin.ngrok.com/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip" -Destination $ngrokZip
+  Expand-Archive -Path $ngrokZip -DestinationPath $OutilsDir -Force
+  Remove-Item $ngrokZip
+}
+Write-Host ""
+Write-Host "IMPORTANT : connecte ngrok à ton compte (gratuit) avant le premier démarrage :" -ForegroundColor Yellow
+Write-Host "  1. Crée un compte sur https://dashboard.ngrok.com/signup" -ForegroundColor Yellow
+Write-Host "  2. Récupère ton authtoken sur https://dashboard.ngrok.com/get-started/your-authtoken" -ForegroundColor Yellow
+Write-Host "  3. Lance : & `"$ngrokExe`" config add-authtoken TON_TOKEN" -ForegroundColor Yellow
+Write-Host "  4. Réserve ton domaine fixe gratuit sur https://dashboard.ngrok.com/domains, puis" -ForegroundColor Yellow
+Write-Host "     mets-le dans demarrer-serveur.ps1 (variable `$NgrokDomain)." -ForegroundColor Yellow
+Write-Host ""
 
 # Code du serveur (dossier backend du dépôt)
 $zip = Join-Path $env:TEMP "ovia-main.zip"
