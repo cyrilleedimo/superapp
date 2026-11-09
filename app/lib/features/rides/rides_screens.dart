@@ -144,7 +144,7 @@ class _RideTabState extends ConsumerState<RideTab> {
         children: [
           TileLayer(urlTemplate: AppConfig.tileUrl, userAgentPackageName: 'app.superapp.client'),
           MarkerLayer(markers: markers),
-          const RichAttributionWidget(attributions: [TextSourceAttribution('© contributeurs OpenStreetMap')]),
+          RichAttributionWidget(attributions: [TextSourceAttribution('© contributeurs OpenStreetMap')]),
         ],
       ),
       Positioned(

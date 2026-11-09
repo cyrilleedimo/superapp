@@ -1,13 +1,14 @@
-# Super-app (nom de travail « Lumo ») — Phase 1
+# Super-app (nom de travail « Lumo ») — v1.0
 
-Marketplace seconde main avec **paiement séquestre**, base du super-app (trajets, repas, boutiques, voyages).
+Super-app : **seconde main** (messagerie, offres), **VTC**, **covoiturage**, **repas**, **boutiques locales**, **voyages**, le tout avec **paiement séquestre**, porte-monnaie, retraits Mobile Money et espace d'administration.
 App **Flutter** (Windows + Android 12+) et API **Node.js/TypeScript + PostgreSQL**.
 
 ```
 superapp/
-├── backend/                 API (testée : 14 tests d'intégration sur PostgreSQL réel)
+├── backend/                 API (testée : 25 tests d'intégration sur PostgreSQL réel)
 │   ├── db/migrations/       Schéma SQL (grand livre, contraintes, triggers)
-│   ├── src/modules/         auth · marketplace · orders (séquestre) · payments · ledger
+│   ├── src/modules/         auth · marketplace · messaging · orders (séquestre) · payments · ledger
+│   │                        media · carpool · rides (VTC) · stores (repas/boutiques) · travel · account
 │   └── test/                Parcours complets (auth, achat, webhook, fraude)
 ├── app/                     App Flutter
 │   ├── lib/core/            thème, API, sécurité, navigation adaptative
@@ -90,11 +91,24 @@ NOTCHPAY_WEBHOOK_HASH=...     # « Hash Key » du webhook (≠ clé API)
 Puis déclarer l'URL `https://api.[VOTRE-DOMAINE]/webhooks/payments` dans le tableau de bord du prestataire.
 Un autre prestataire s'ajoute en implémentant l'interface `PaymentProvider` (`src/modules/payments/provider.ts`).
 
-## 5. Feuille de route
+## 5. Obtenir l'APK et l'installeur Windows sans rien installer
+
+Chaque envoi sur `main` déclenche **GitHub Actions** (`.github/workflows/build.yml`) :
+tests du backend → APK Android 12+ → installeur Windows `Lumo-Setup-x.y.z.exe` → **Release** GitHub.
+Télécharge les fichiers dans l'onglet **Releases** du dépôt.
+
+## 6. Mettre le serveur en ligne
+
+L'app a besoin du serveur pour fonctionner. Le plus simple est Render : **New → Blueprint →** ce dépôt (`render.yaml`).
+Copie ensuite l'adresse https obtenue dans l'app : écran de connexion → **Serveur**.
+Tu peux aussi la mettre dans la variable de dépôt `API_URL` pour qu'elle soit intégrée aux prochaines compilations.
+
+## 7. Feuille de route
 
 | Phase | Contenu |
 |---|---|
-| **1 — livrée** | Identité sécurisée, seconde main, séquestre, paiements, grand livre, app Windows/Android (accueil, explorer, fiche, paiement, vendre, profil) |
-| 2 | Upload photos signé, messagerie et offres, retraits vers Mobile Money, notifications push, expiration/libération automatiques, back-office admin, **Trajets** (géoloc temps réel, chauffeurs vérifiés, covoiturage), anglais |
-| 3 | **Repas** (restaurants, menus, livreurs), **Boutiques locales** (catalogues commerçants), **Voyages** (via [TRAVEL API PARTNER]), colis |
+| **1 — livrée** | Identité sécurisée, seconde main, séquestre, paiements, grand livre |
+| **2 — livrée** | Photos (ré-encodées, EXIF supprimé), messagerie et offres, notifications in-app, retraits Mobile Money (validés par admin), expiration et libération automatiques, administration, **VTC** (chauffeurs vérifiés, carte, estimation, attribution), **covoiturage** |
+| **3 — livrée** | **Repas** et **Boutiques locales** (catalogue, stock, panier, suivi de livraison), **Voyages** (écran et API prêts, données via [TRAVEL API PARTNER]) |
+| 4 — à venir | Notifications push ([PUSH PROVIDER]), paiement in-app des courses VTC (pré-autorisation), livreurs indépendants, anglais, colis |
 | Avant lancement | Voir `docs/SECURITY.md` — reste à faire |
