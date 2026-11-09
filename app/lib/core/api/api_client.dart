@@ -19,6 +19,28 @@ class ApiException implements Exception {
         'listing_unavailable' => 'Cet article vient d\'être réservé par quelqu\'un d\'autre.',
         'payment_provider_unavailable' => 'Le service de paiement ne répond pas. Réessaie dans un instant.',
         'rate_limited' => 'Beaucoup de demandes d\'un coup. Patiente quelques secondes.',
+        'not_enough_seats' => 'Il ne reste plus assez de places sur ce trajet.',
+        'trip_unavailable' => 'Ce trajet n\'est plus disponible.',
+        'store_closed' => 'Ce commerce est fermé pour le moment.',
+        'out_of_stock' => 'Un des articles n\'est plus en stock en quantité suffisante.',
+        'product_unavailable' => 'Un des articles n\'est plus disponible.',
+        'insufficient_balance' => 'Ton solde est insuffisant pour ce retrait.',
+        'payout_below_minimum' => 'Le montant est en dessous du minimum de retrait.',
+        'rides_not_configured' => 'Les courses en ville ne sont pas encore ouvertes.',
+        'travel_not_configured' => 'Le comparateur de voyages n\'est pas encore relié à un partenaire.',
+        'driver_not_verified' => 'Ton compte chauffeur est en cours de vérification.',
+        'driver_not_online' => 'Passe en ligne pour voir les courses.',
+        'ride_already_taken' => 'Un autre chauffeur a déjà pris cette course.',
+        'ride_already_active' => 'Tu as déjà une course en cours.',
+        'ride_too_short' => 'Le départ et l\'arrivée sont trop proches.',
+        'ride_too_long' => 'Cette distance dépasse la limite des courses en ville.',
+        'offer_not_below_price' => 'Ton offre doit être inférieure au prix affiché.',
+        'offer_already_decided' => 'Cette offre a déjà reçu une réponse.',
+        'unsupported_image' || 'unreadable_image' => 'Cette image n\'est pas acceptée. Utilise une photo JPEG, PNG ou WebP.',
+        'departure_too_soon' => 'Le départ doit être dans au moins 15 minutes.',
+        'order_not_confirmable' => 'Cette commande ne peut pas encore être confirmée.',
+        'own_listing' || 'cannot_buy_own_listing' => 'C\'est ta propre annonce.',
+        'validation_failed' => 'Vérifie les informations saisies.',
         'network' => 'Connexion impossible. Vérifie ton réseau puis réessaie.',
         _ => 'Une erreur est survenue. Réessaie.',
       };
@@ -98,4 +120,14 @@ class ApiClient {
 
   Future<Map<String, dynamic>> post(String path, {Object? body, Map<String, String>? headers}) =>
       _wrap(() => dio.post<Map<String, dynamic>>(path, data: body ?? const {}, options: Options(headers: headers)));
+
+  Future<Map<String, dynamic>> patch(String path, {Object? body}) =>
+      _wrap(() => dio.patch<Map<String, dynamic>>(path, data: body ?? const {}));
+
+  /// Envoie une image brute (le serveur la vérifie et la ré-encode). Renvoie {id, url}.
+  Future<Map<String, dynamic>> uploadImage(List<int> bytes, String mime) => _wrap(() => dio.post<Map<String, dynamic>>(
+        '/media',
+        data: Stream<List<int>>.value(bytes),
+        options: Options(contentType: mime, headers: {Headers.contentLengthHeader: bytes.length}),
+      ));
 }

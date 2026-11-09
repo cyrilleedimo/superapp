@@ -4,6 +4,8 @@ import { createPool } from './db.js';
 import { migrate } from './migrate.js';
 import { buildApp } from './app.js';
 import type { Ctx } from './context.js';
+import { startJobs } from './jobs.js';
+import { makeOrderService } from './modules/orders/service.js';
 import { MemorySmsSender } from './modules/auth/sms.js';
 import { makeTokenService } from './modules/auth/tokens.js';
 import { NotchPayProvider, SandboxProvider } from './modules/payments/provider.js';
@@ -35,7 +37,8 @@ async function main() {
   await migrate(ctx.db, (m) => console.log(m));
   const app = await buildApp(ctx);
   await app.listen({ port: config.PORT, host: '0.0.0.0' });
-  const stop = async () => { await app.close(); await ctx.db.end(); process.exit(0); };
+  const stopJobs = config.DISABLE_JOBS === 'true' ? () => {} : startJobs(ctx, makeOrderService(ctx), (m) => app.log.info(m));
+  const stop = async () => { stopJobs(); await app.close(); await ctx.db.end(); process.exit(0); };
   process.on('SIGTERM', stop);
   process.on('SIGINT', stop);
 }

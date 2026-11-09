@@ -23,6 +23,20 @@ const schema = z
     NOTCHPAY_WEBHOOK_HASH: z.string().optional(),
     PAYMENT_CALLBACK_URL: z.string().url().default('http://localhost:8080/payments/return'),
     SANDBOX_WEBHOOK_SECRET: z.string().default('sandbox-secret-dev-only'),
+    // URL publique de l'API (liens des médias) et dossier de stockage local des images.
+    // Production : remplacer le stockage disque par [OBJECT STORAGE] (S3 compatible).
+    PUBLIC_BASE_URL: z.string().url().default('http://localhost:8080'),
+    UPLOAD_DIR: z.string().default('./uploads'),
+    // Commandes impayées annulées après N minutes (l'article redevient disponible).
+    PENDING_ORDER_TTL_MIN: z.coerce.number().int().min(5).default(30),
+    // Libération automatique du séquestre N jours après paiement. DÉCISION COMMERCIALE : vide = désactivé.
+    AUTO_RELEASE_DAYS: z.coerce.number().int().min(1).optional(),
+    // Tarification VTC. DÉCISION COMMERCIALE : vide = service VTC désactivé (503).
+    RIDE_BASE_XAF: z.coerce.number().int().min(0).optional(),
+    RIDE_PER_KM_XAF: z.coerce.number().int().min(1).optional(),
+    RIDE_DISPATCH_RADIUS_KM: z.coerce.number().min(0.5).max(50).default(5),
+    PAYOUT_MIN_XAF: z.coerce.number().int().min(1).default(1),
+    DISABLE_JOBS: z.enum(['true', 'false']).default('false'),
   })
   .superRefine((c, ctx) => {
     if (c.NODE_ENV === 'production' && c.PAYMENT_PROVIDER === 'sandbox') {

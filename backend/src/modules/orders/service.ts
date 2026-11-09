@@ -1,20 +1,28 @@
-// Commandes avec séquestre : l'argent de l'acheteur est bloqué jusqu'à sa
-// confirmation de réception, puis versé au portefeuille du vendeur.
+// Commandes avec séquestre, communes à tous les services (seconde main,
+// covoiturage, repas, boutiques). L'argent de l'acheteur est bloqué jusqu'à sa
+// confirmation, puis versé au portefeuille du vendeur / chauffeur / commerçant.
 //
 //   pending_payment ──paiement confirmé──▶ paid ──confirmation acheteur──▶ completed
-//        │                                  │
-//        └──annulation──▶ cancelled         └──litige──▶ disputed ──admin──▶ refunded
+//        │ (annulation ou expiration)       │
+//        └──▶ cancelled                     └──litige──▶ disputed ──admin──▶ refunded | completed
 import type { Ctx } from '../../context.js';
 import { withTx } from '../../db.js';
-import type { Tx } from '../../db.js';
+import type { Db, Tx } from '../../db.js';
 import { AppError, conflict, forbidden, notFound } from '../../lib/errors.js';
 import { randomToken, sha256Hex } from '../../lib/crypto.js';
 import { audit } from '../../lib/audit.js';
+import { notify } from '../../lib/notify.js';
 import { post, walletAccount } from '../ledger/ledger.js';
 
+export type OrderKind = 'listing' | 'carpool' | 'food' | 'shop';
+
+export interface OrderItem { productId?: string; name: string; qty: number; unitPriceXaf: number }
+
 export interface OrderRow {
-  id: string; buyer_id: string; seller_id: string; listing_id: string;
+  id: string; buyer_id: string; seller_id: string; listing_id: string | null;
+  kind: OrderKind; ref_id: string | null; items: OrderItem[]; fulfillment: string | null;
   item_price_xaf: number; buyer_fee_xaf: number; total_xaf: number; status: string;
+  offer_id: string | null; created_at: Date; paid_at: Date | null;
 }
 
 export function buyerFee(priceXaf: number, bps: number, fixed: number): number {
@@ -22,19 +30,82 @@ export function buyerFee(priceXaf: number, bps: number, fixed: number): number {
   return Math.ceil((priceXaf * bps) / 10_000) + fixed;
 }
 
-const view = (o: OrderRow) => ({
-  id: o.id, listingId: o.listing_id, buyerId: o.buyer_id, sellerId: o.seller_id,
-  itemPriceXaf: o.item_price_xaf, buyerFeeXaf: o.buyer_fee_xaf, totalXaf: o.total_xaf, status: o.status,
+export const viewOrder = (o: OrderRow) => ({
+  id: o.id, kind: o.kind, listingId: o.listing_id, refId: o.ref_id, items: o.items,
+  buyerId: o.buyer_id, sellerId: o.seller_id, fulfillment: o.fulfillment,
+  itemPriceXaf: o.item_price_xaf, buyerFeeXaf: o.buyer_fee_xaf, totalXaf: o.total_xaf,
+  status: o.status, createdAt: o.created_at,
 });
 
-async function lockOrder(tx: Tx, id: string): Promise<OrderRow> {
+export async function lockOrder(tx: Tx, id: string): Promise<OrderRow> {
   const r = await tx.query<OrderRow>('SELECT * FROM orders WHERE id=$1 FOR UPDATE', [id]);
   if (!r.rows[0]) throw notFound();
   return r.rows[0];
 }
 
+/** Insère une commande (à appeler dans la transaction qui a réservé le stock / les places). */
+export async function insertOrder(tx: Tx, ctx: Ctx, o: {
+  buyerId: string; sellerId: string; kind: OrderKind; listingId?: string; refId?: string;
+  items?: OrderItem[]; itemPriceXaf: number; idempotencyKey: string; offerId?: string;
+}): Promise<OrderRow> {
+  if (o.buyerId === o.sellerId) throw forbidden('cannot_buy_from_yourself');
+  const fee = buyerFee(o.itemPriceXaf, ctx.config.BUYER_FEE_BPS, ctx.config.BUYER_FEE_FIXED_XAF);
+  const r = await tx.query<OrderRow>(
+    `INSERT INTO orders (buyer_id, seller_id, kind, listing_id, ref_id, items, item_price_xaf, buyer_fee_xaf,
+                         total_xaf, idempotency_key, offer_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+    [o.buyerId, o.sellerId, o.kind, o.listingId ?? null, o.refId ?? null, JSON.stringify(o.items ?? []),
+     o.itemPriceXaf, fee, o.itemPriceXaf + fee, o.idempotencyKey, o.offerId ?? null]);
+  await audit(tx, { actorId: o.buyerId, action: 'order.create', entity: 'order', entityId: r.rows[0]!.id, meta: { kind: o.kind } });
+  return r.rows[0]!;
+}
+
+/** Retourne la commande déjà créée avec cette clé d'idempotence, s'il y en a une. */
+export async function findReplay(db: Db, buyerId: string, key: string): Promise<OrderRow | undefined> {
+  return (await db.query<OrderRow>('SELECT * FROM orders WHERE buyer_id=$1 AND idempotency_key=$2', [buyerId, key])).rows[0];
+}
+
+/** Rend disponible ce que la commande avait réservé (article, places, stock). */
+async function releaseReservation(tx: Tx, o: OrderRow): Promise<void> {
+  if (o.kind === 'listing' && o.listing_id) {
+    await tx.query(`UPDATE listings SET status='active', updated_at=now() WHERE id=$1 AND status='reserved'`, [o.listing_id]);
+    if (o.offer_id) await tx.query(`UPDATE offers SET status='accepted' WHERE id=$1 AND status='used'`, [o.offer_id]);
+  } else if (o.kind === 'carpool' && o.ref_id) {
+    const seats = o.items.reduce((s, i) => s + i.qty, 0);
+    await tx.query('UPDATE trips SET seats_left = LEAST(seats_total, seats_left + $2) WHERE id=$1', [o.ref_id, seats]);
+  } else if (o.kind === 'shop') {
+    for (const it of o.items) {
+      if (it.productId) await tx.query('UPDATE products SET stock = stock + $2 WHERE id=$1 AND stock IS NOT NULL', [it.productId, it.qty]);
+    }
+  }
+}
+
+const KIND_LABEL: Record<OrderKind, string> = { listing: 'article', carpool: 'réservation de trajet', food: 'commande repas', shop: 'commande boutique' };
+
 export function makeOrderService(ctx: Ctx) {
   const { db, config, payments } = ctx;
+
+  /** Libère le séquestre vers le vendeur. Utilisé par l'acheteur, l'admin et la libération auto. */
+  async function release(tx: Tx, o: OrderRow, actorId: string | null, reason: string) {
+    await post(tx, { memo: `libération du séquestre (${reason})`, orderId: o.id, lines: [
+      { account: 'escrow', amountXaf: o.total_xaf },
+      { account: walletAccount(o.seller_id), amountXaf: -o.item_price_xaf },
+      ...(o.buyer_fee_xaf > 0 ? [{ account: 'platform:revenue', amountXaf: -o.buyer_fee_xaf }] : []),
+    ] });
+    await tx.query(`UPDATE orders SET status='completed', completed_at=now(), updated_at=now() WHERE id=$1`, [o.id]);
+    if (o.kind === 'listing' && o.listing_id) {
+      await tx.query(`UPDATE listings SET status='sold', updated_at=now() WHERE id=$1`, [o.listing_id]);
+    }
+    await audit(tx, { actorId, action: 'order.completed', entity: 'order', entityId: o.id, meta: { reason } });
+    await notify(tx, o.seller_id, 'Paiement libéré',
+      `${o.item_price_xaf} FCFA ont été ajoutés à ton porte-monnaie.`, `/orders/${o.id}`);
+  }
+
+  async function cancelLocked(tx: Tx, o: OrderRow, actorId: string | null, reason: string) {
+    await tx.query(`UPDATE orders SET status='cancelled', updated_at=now() WHERE id=$1`, [o.id]);
+    await releaseReservation(tx, o);
+    await audit(tx, { actorId, action: 'order.cancelled', entity: 'order', entityId: o.id, meta: { reason } });
+  }
 
   /** Applique l'état réel du prestataire à un paiement. Idempotent. */
   async function syncPayment(paymentId: string): Promise<string> {
@@ -50,36 +121,34 @@ export function makeOrderService(ctx: Ctx) {
       const p = pr.rows[0]!;
       if (['succeeded', 'failed', 'mismatch', 'refunded'].includes(p.status)) return p.status; // déjà traité
       const order = await lockOrder(tx, p.order_id);
+      const raw = JSON.stringify(remote.raw);
 
       if (remote.status === 'pending') {
-        await tx.query(`UPDATE payments SET status='pending', last_provider_data=$2, updated_at=now() WHERE id=$1`,
-          [p.id, JSON.stringify(remote.raw)]);
+        await tx.query(`UPDATE payments SET status='pending', last_provider_data=$2, updated_at=now() WHERE id=$1`, [p.id, raw]);
         return 'pending';
       }
       if (remote.status === 'failed') {
-        await tx.query(`UPDATE payments SET status='failed', last_provider_data=$2, updated_at=now() WHERE id=$1`,
-          [p.id, JSON.stringify(remote.raw)]);
+        await tx.query(`UPDATE payments SET status='failed', last_provider_data=$2, updated_at=now() WHERE id=$1`, [p.id, raw]);
         return 'failed';
       }
       // Succès annoncé : on exige montant ET devise identiques à ce qui a été facturé.
       if (remote.amountXaf !== p.amount_xaf || remote.currency.toUpperCase() !== 'XAF') {
-        await tx.query(`UPDATE payments SET status='mismatch', last_provider_data=$2, updated_at=now() WHERE id=$1`,
-          [p.id, JSON.stringify(remote.raw)]);
+        await tx.query(`UPDATE payments SET status='mismatch', last_provider_data=$2, updated_at=now() WHERE id=$1`, [p.id, raw]);
         await audit(tx, { action: 'payment.mismatch', entity: 'payment', entityId: p.id,
           meta: { expected: p.amount_xaf, got: remote.amountXaf, currency: remote.currency } });
         return 'mismatch';
       }
-      await tx.query(`UPDATE payments SET status='succeeded', last_provider_data=$2, updated_at=now() WHERE id=$1`,
-        [p.id, JSON.stringify(remote.raw)]);
-      // L'argent est chez le prestataire (créance) et bloqué en séquestre (dette envers l'acheteur).
+      await tx.query(`UPDATE payments SET status='succeeded', last_provider_data=$2, updated_at=now() WHERE id=$1`, [p.id, raw]);
       await post(tx, { memo: 'paiement reçu en séquestre', orderId: order.id, lines: [
         { account: 'psp:clearing', amountXaf: p.amount_xaf },
         { account: 'escrow', amountXaf: -p.amount_xaf },
       ] });
       if (order.status === 'pending_payment') {
         await tx.query(`UPDATE orders SET status='paid', paid_at=now(), updated_at=now() WHERE id=$1`, [order.id]);
+        await notify(tx, order.seller_id, 'Nouvelle commande payée',
+          `Une ${KIND_LABEL[order.kind]} vient d'être payée. L'argent est en séquestre.`, `/orders/${order.id}`);
       } else {
-        // Payé après annulation : l'argent est tracé en séquestre, remboursement manuel requis.
+        // Payé après annulation : l'argent est tracé en séquestre, remboursement par un admin requis.
         await audit(tx, { action: 'payment.after_cancel', entity: 'order', entityId: order.id });
       }
       await audit(tx, { action: 'payment.succeeded', entity: 'payment', entityId: p.id, meta: { orderId: order.id } });
@@ -90,28 +159,38 @@ export function makeOrderService(ctx: Ctx) {
   return {
     syncPayment,
 
-    async create(buyerId: string, listingId: string, idempotencyKey: string) {
-      const existing = await db.query<OrderRow>(
-        'SELECT * FROM orders WHERE buyer_id=$1 AND idempotency_key=$2', [buyerId, idempotencyKey]);
-      if (existing.rows[0]) return { order: view(existing.rows[0]), replayed: true };
+    /** Achat d'une annonce de seconde main (au prix affiché ou au prix d'une offre acceptée). */
+    async createListingOrder(buyerId: string, listingId: string, idempotencyKey: string, offerId?: string) {
+      const existing = await findReplay(db, buyerId, idempotencyKey);
+      if (existing) return { order: viewOrder(existing), replayed: true };
       try {
         const order = await withTx(db, async (tx) => {
-          const l = await tx.query<{ seller_id: string; price_xaf: number; status: string }>(
-            'SELECT seller_id, price_xaf, status FROM listings WHERE id=$1 FOR UPDATE', [listingId]);
+          const l = await tx.query<{ seller_id: string; price_xaf: number; status: string; title: string }>(
+            'SELECT seller_id, price_xaf, status, title FROM listings WHERE id=$1 FOR UPDATE', [listingId]);
           const listing = l.rows[0];
           if (!listing) throw notFound('listing_not_found');
           if (listing.seller_id === buyerId) throw forbidden('cannot_buy_own_listing');
           if (listing.status !== 'active') throw conflict('listing_unavailable');
-          const fee = buyerFee(listing.price_xaf, config.BUYER_FEE_BPS, config.BUYER_FEE_FIXED_XAF);
-          const r = await tx.query<OrderRow>(
-            `INSERT INTO orders (buyer_id, seller_id, listing_id, item_price_xaf, buyer_fee_xaf, total_xaf, idempotency_key)
-             VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
-            [buyerId, listing.seller_id, listingId, listing.price_xaf, fee, listing.price_xaf + fee, idempotencyKey]);
+          let price = listing.price_xaf;
+          if (offerId) {
+            const o = await tx.query<{ amount_xaf: number; status: string; buyer_id: string; listing_id: string }>(
+              `SELECT f.amount_xaf, f.status, c.buyer_id, c.listing_id FROM offers f
+               JOIN conversations c ON c.id = f.conversation_id WHERE f.id=$1 FOR UPDATE OF f`, [offerId]);
+            const offer = o.rows[0];
+            if (!offer || offer.buyer_id !== buyerId || offer.listing_id !== listingId) throw notFound('offer_not_found');
+            if (offer.status !== 'accepted') throw conflict('offer_not_accepted');
+            price = offer.amount_xaf;
+            await tx.query(`UPDATE offers SET status='used' WHERE id=$1`, [offerId]);
+          }
+          const row = await insertOrder(tx, ctx, {
+            buyerId, sellerId: listing.seller_id, kind: 'listing', listingId,
+            items: [{ name: listing.title, qty: 1, unitPriceXaf: price }],
+            itemPriceXaf: price, idempotencyKey, offerId,
+          });
           await tx.query(`UPDATE listings SET status='reserved', updated_at=now() WHERE id=$1`, [listingId]);
-          await audit(tx, { actorId: buyerId, action: 'order.create', entity: 'order', entityId: r.rows[0]!.id });
-          return r.rows[0]!;
+          return row;
         });
-        return { order: view(order), replayed: false };
+        return { order: viewOrder(order), replayed: false };
       } catch (e) {
         if ((e as { code?: string }).code === '23505') throw conflict('listing_unavailable');
         throw e;
@@ -122,13 +201,13 @@ export function makeOrderService(ctx: Ctx) {
       const r = await db.query<OrderRow>('SELECT * FROM orders WHERE id=$1', [orderId]);
       const o = r.rows[0];
       if (!o || (o.buyer_id !== userId && o.seller_id !== userId)) throw notFound();
-      return view(o);
+      return viewOrder(o);
     },
 
-    async listMine(userId: string) {
-      const r = await db.query<OrderRow>(
-        `SELECT * FROM orders WHERE buyer_id=$1 OR seller_id=$1 ORDER BY created_at DESC LIMIT 100`, [userId]);
-      return r.rows.map(view);
+    async listMine(userId: string, role: 'buyer' | 'seller' | 'all' = 'all') {
+      const where = role === 'buyer' ? 'buyer_id=$1' : role === 'seller' ? 'seller_id=$1' : '(buyer_id=$1 OR seller_id=$1)';
+      const r = await db.query<OrderRow>(`SELECT * FROM orders WHERE ${where} ORDER BY created_at DESC LIMIT 100`, [userId]);
+      return r.rows.map(viewOrder);
     },
 
     /** Démarre le paiement hébergé chez le prestataire et renvoie l'URL de paiement. */
@@ -201,15 +280,26 @@ export function makeOrderService(ctx: Ctx) {
         const o = await lockOrder(tx, orderId);
         if (o.buyer_id !== buyerId) throw notFound();
         if (o.status !== 'paid') throw conflict('order_not_confirmable');
-        await post(tx, { memo: 'libération du séquestre', orderId, lines: [
-          { account: 'escrow', amountXaf: o.total_xaf },
-          { account: walletAccount(o.seller_id), amountXaf: -o.item_price_xaf },
-          ...(o.buyer_fee_xaf > 0 ? [{ account: 'platform:revenue', amountXaf: -o.buyer_fee_xaf }] : []),
-        ] });
-        await tx.query(`UPDATE orders SET status='completed', completed_at=now(), updated_at=now() WHERE id=$1`, [orderId]);
-        await tx.query(`UPDATE listings SET status='sold', updated_at=now() WHERE id=$1`, [o.listing_id]);
-        await audit(tx, { actorId: buyerId, action: 'order.completed', entity: 'order', entityId: orderId });
-        return view({ ...o, status: 'completed' });
+        await release(tx, o, buyerId, 'confirmation acheteur');
+        return viewOrder({ ...o, status: 'completed' });
+      });
+    },
+
+    /** Le vendeur / commerçant fait avancer la préparation ou la livraison. */
+    async setFulfillment(sellerId: string, orderId: string, step: 'accepted' | 'preparing' | 'ready' | 'delivering' | 'delivered') {
+      return withTx(db, async (tx) => {
+        const o = await lockOrder(tx, orderId);
+        if (o.seller_id !== sellerId) throw notFound();
+        if (o.status !== 'paid') throw conflict('order_not_paid');
+        const flow = ['accepted', 'preparing', 'ready', 'delivering', 'delivered'];
+        if (o.fulfillment && flow.indexOf(step) <= flow.indexOf(o.fulfillment)) throw conflict('invalid_transition');
+        await tx.query('UPDATE orders SET fulfillment=$2, updated_at=now() WHERE id=$1', [orderId, step]);
+        const labels: Record<string, string> = {
+          accepted: 'Ta commande est acceptée', preparing: 'Ta commande est en préparation', ready: 'Ta commande est prête',
+          delivering: 'Ta commande est en route', delivered: 'Commande livrée : confirme la réception',
+        };
+        await notify(tx, o.buyer_id, labels[step]!, 'Suis ta commande dans l\'app.', `/orders/${orderId}`);
+        return viewOrder({ ...o, fulfillment: step });
       });
     },
 
@@ -218,10 +308,8 @@ export function makeOrderService(ctx: Ctx) {
         const o = await lockOrder(tx, orderId);
         if (o.buyer_id !== userId && o.seller_id !== userId) throw notFound();
         if (o.status !== 'pending_payment') throw conflict('order_not_cancellable');
-        await tx.query(`UPDATE orders SET status='cancelled', updated_at=now() WHERE id=$1`, [orderId]);
-        await tx.query(`UPDATE listings SET status='active', updated_at=now() WHERE id=$1 AND status='reserved'`, [o.listing_id]);
-        await audit(tx, { actorId: userId, action: 'order.cancelled', entity: 'order', entityId: orderId });
-        return view({ ...o, status: 'cancelled' });
+        await cancelLocked(tx, o, userId, 'utilisateur');
+        return viewOrder({ ...o, status: 'cancelled' });
       });
     },
 
@@ -232,12 +320,23 @@ export function makeOrderService(ctx: Ctx) {
         if (o.status !== 'paid') throw conflict('order_not_disputable');
         await tx.query(`UPDATE orders SET status='disputed', updated_at=now() WHERE id=$1`, [orderId]);
         await audit(tx, { actorId: buyerId, action: 'order.disputed', entity: 'order', entityId: orderId, meta: { reason } });
-        return view({ ...o, status: 'disputed' });
+        await notify(tx, o.seller_id, 'Litige ouvert', 'L\'acheteur a signalé un problème. Notre équipe va examiner la commande.', `/orders/${orderId}`);
+        return viewOrder({ ...o, status: 'disputed' });
       });
     },
 
-    /** Admin : rembourse l'acheteur (écriture comptable). L'appel de remboursement
-     *  chez le prestataire est exécuté hors ligne en Phase 1 (voir docs/ROADMAP). */
+    /** Admin : tranche un litige en faveur du vendeur. */
+    async adminRelease(adminId: string, orderId: string) {
+      return withTx(db, async (tx) => {
+        const o = await lockOrder(tx, orderId);
+        if (!['paid', 'disputed'].includes(o.status)) throw conflict('order_not_releasable');
+        await release(tx, o, adminId, 'décision admin');
+        return viewOrder({ ...o, status: 'completed' });
+      });
+    },
+
+    /** Admin : rembourse l'acheteur (écriture comptable). Le virement retour chez le
+     *  prestataire est exécuté depuis son tableau de bord (voir docs/SECURITY.md). */
     async refund(adminId: string, orderId: string) {
       return withTx(db, async (tx) => {
         const o = await lockOrder(tx, orderId);
@@ -247,11 +346,50 @@ export function makeOrderService(ctx: Ctx) {
           { account: 'psp:clearing', amountXaf: -o.total_xaf },
         ] });
         await tx.query(`UPDATE orders SET status='refunded', updated_at=now() WHERE id=$1`, [orderId]);
-        await tx.query(`UPDATE listings SET status='active', updated_at=now() WHERE id=$1`, [o.listing_id]);
+        await releaseReservation(tx, o);
         await tx.query(`UPDATE payments SET status='refunded', updated_at=now() WHERE order_id=$1 AND status='succeeded'`, [orderId]);
         await audit(tx, { actorId: adminId, action: 'order.refunded', entity: 'order', entityId: orderId });
-        return view({ ...o, status: 'refunded' });
+        await notify(tx, o.buyer_id, 'Remboursement validé', `${o.total_xaf} FCFA vont t'être reversés.`, `/orders/${orderId}`);
+        return viewOrder({ ...o, status: 'refunded' });
       });
+    },
+
+    // ---------------------------------------------------- tâches planifiées
+    /** Annule les commandes non payées après PENDING_ORDER_TTL_MIN minutes. */
+    async expirePending(): Promise<number> {
+      const ids = (await db.query<{ id: string }>(
+        `SELECT id FROM orders WHERE status='pending_payment'
+         AND created_at < now() - make_interval(mins => $1) LIMIT 200`, [config.PENDING_ORDER_TTL_MIN])).rows;
+      let n = 0;
+      for (const { id } of ids) {
+        await withTx(db, async (tx) => {
+          const o = await lockOrder(tx, id);
+          if (o.status !== 'pending_payment') return;
+          // Un paiement peut être en cours : on ne coupe pas une session de moins de 30 min.
+          const live = await tx.query(`SELECT 1 FROM payments WHERE order_id=$1 AND status='pending'
+                                       AND created_at > now() - interval '30 minutes'`, [id]);
+          if (live.rowCount) return;
+          await cancelLocked(tx, o, null, 'expiration');
+          n++;
+        });
+      }
+      return n;
+    },
+
+    /** Libère automatiquement le séquestre après AUTO_RELEASE_DAYS jours sans litige. */
+    async autoRelease(): Promise<number> {
+      if (!config.AUTO_RELEASE_DAYS) return 0;
+      const ids = (await db.query<{ id: string }>(
+        `SELECT id FROM orders WHERE status='paid' AND paid_at < now() - make_interval(days => $1) LIMIT 200`,
+        [config.AUTO_RELEASE_DAYS])).rows;
+      for (const { id } of ids) {
+        await withTx(db, async (tx) => {
+          const o = await lockOrder(tx, id);
+          if (o.status === 'paid') await release(tx, o, null, 'libération automatique');
+        });
+      }
+      return ids.length;
     },
   };
 }
+export type OrderService = ReturnType<typeof makeOrderService>;

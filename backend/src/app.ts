@@ -8,6 +8,14 @@ import { AppError } from './lib/errors.js';
 import { authRoutes } from './modules/auth/routes.js';
 import { marketplaceRoutes } from './modules/marketplace/routes.js';
 import { orderRoutes } from './modules/orders/routes.js';
+import { makeOrderService } from './modules/orders/service.js';
+import { mediaRoutes } from './modules/media/routes.js';
+import { messagingRoutes } from './modules/messaging/routes.js';
+import { accountRoutes } from './modules/account/routes.js';
+import { carpoolRoutes } from './modules/carpool/routes.js';
+import { rideRoutes } from './modules/rides/routes.js';
+import { storeRoutes } from './modules/stores/routes.js';
+import { travelRoutes } from './modules/travel/routes.js';
 
 export async function buildApp(ctx: Ctx): Promise<FastifyInstance> {
   const app = Fastify({
@@ -49,6 +57,13 @@ export async function buildApp(ctx: Ctx): Promise<FastifyInstance> {
   app.get('/health', async () => ({ ok: true }));
   await authRoutes(app, ctx);
   await marketplaceRoutes(app, ctx);
-  await orderRoutes(app, ctx);
+  await orderRoutes(app, ctx, makeOrderService(ctx));
+  await mediaRoutes(app, ctx);
+  await messagingRoutes(app, ctx);
+  await accountRoutes(app, ctx);
+  await carpoolRoutes(app, ctx);
+  await rideRoutes(app, ctx);
+  await storeRoutes(app, ctx);
+  await travelRoutes(app, null); // [TRAVEL API PARTNER] : brancher ici une implémentation de TravelProvider
   return app;
 }

@@ -9,17 +9,18 @@ import { me, requireAuth } from '../auth/guard.js';
 export const CATEGORIES = ['women', 'men', 'kids', 'electronics', 'home', 'beauty', 'sports', 'other'] as const;
 const CONDITIONS = ['new', 'very_good', 'good', 'fair'] as const;
 
-// Photos : uniquement des URL https (l'upload signé arrive en Phase 2).
-const photoUrl = z.url({ protocol: /^https$/ }).max(500);
+// Photos : URL https, ou images uploadées sur notre propre API (/media/:id, ré-encodées).
+const photoUrl = (base: string) => z.string().max(500).refine(
+  (u) => /^https:\/\/[^\s]+$/.test(u) || u.startsWith(`${base}/media/`), 'URL https ou média uploadé');
 
-const createSchema = z.object({
+const createSchemaFor = (base: string) => z.object({
   title: z.string().trim().min(3).max(120),
   description: z.string().trim().max(4000).default(''),
   category: z.enum(CATEGORIES),
   condition: z.enum(CONDITIONS),
   priceXaf: z.number().int().positive().max(100_000_000),
   city: z.string().trim().min(2).max(60),
-  photos: z.array(photoUrl).max(10).default([]),
+  photos: z.array(photoUrl(base)).max(10).default([]),
 });
 
 const COLS = `id, seller_id AS "sellerId", title, description, category, condition,
@@ -36,6 +37,7 @@ function decodeCursor(c: string): [string, string] {
 
 export async function marketplaceRoutes(app: FastifyInstance, ctx: Ctx) {
   const { db } = ctx;
+  const createSchema = createSchemaFor(ctx.config.PUBLIC_BASE_URL);
 
   app.get('/listings', async (req) => {
     const q = parse(z.object({
@@ -68,6 +70,12 @@ export async function marketplaceRoutes(app: FastifyInstance, ctx: Ctx) {
     const items = r.rows.slice(0, q.limit);
     const last = items[items.length - 1];
     return { items, nextCursor: r.rows.length > q.limit && last ? encodeCursor(last.createdAt, last.id) : null };
+  });
+
+  app.get('/listings/mine', { preHandler: requireAuth(ctx) }, async (req) => {
+    const r = await db.query(`SELECT ${COLS} FROM listings WHERE seller_id=$1 AND status <> 'removed'
+                              ORDER BY created_at DESC LIMIT 100`, [me(req).id]);
+    return { items: r.rows };
   });
 
   app.get('/listings/:id', async (req) => {

@@ -56,8 +56,10 @@ class MarketplaceRepository {
 
   /// Une clé d'idempotence par intention d'achat : un double tap ou une
   /// coupure réseau ne crée jamais deux commandes.
-  Future<Order> createOrder(String listingId, String idempotencyKey) async => Order.fromJson(
-      await _api.post('/orders', body: {'listingId': listingId}, headers: {'Idempotency-Key': idempotencyKey}));
+  Future<Order> createOrder(String listingId, String idempotencyKey, {String? offerId}) async => Order.fromJson(
+      await _api.post('/orders',
+          body: {'listingId': listingId, if (offerId != null) 'offerId': offerId},
+          headers: {'Idempotency-Key': idempotencyKey}));
 
   Future<({String reference, String checkoutUrl})> startPayment(String orderId) async {
     final r = await _api.post('/orders/$orderId/pay');

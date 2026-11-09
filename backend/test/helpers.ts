@@ -20,6 +20,10 @@ export async function setup(): Promise<TestEnv> {
     BUYER_FEE_FIXED_XAF: '0',
     PAYMENT_PROVIDER: 'sandbox',
     SANDBOX_WEBHOOK_SECRET: 'whsec_test',
+    UPLOAD_DIR: process.env.TEST_UPLOAD_DIR ?? './test-uploads',
+    RIDE_BASE_XAF: '500',         // valeurs de TEST uniquement
+    RIDE_PER_KM_XAF: '200',
+    AUTO_RELEASE_DAYS: '7',
   });
   const db = createPool(config.DATABASE_URL);
   await db.query('DROP SCHEMA public CASCADE; CREATE SCHEMA public;');

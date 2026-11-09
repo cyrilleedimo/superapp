@@ -1,7 +1,7 @@
 name: superapp
 description: Super-app — seconde main, trajets, repas, boutiques, voyages. Windows + Android 12+.
 publish_to: 'none'
-version: 0.1.0+1
+version: 1.0.0+1
 
 environment:
   sdk: ">=3.5.0 <4.0.0"
@@ -17,6 +17,10 @@ dependencies:
   url_launcher: ^6.3.1           # ouverture de la page de paiement hébergée
   google_fonts: ^6.2.1           # Bricolage Grotesque + Inter
   uuid: ^4.5.1                   # clés d'idempotence
+  image_picker: ^1.1.2           # photos (galerie/caméra Android, sélecteur de fichiers Windows)
+  flutter_map: ^7.0.2            # carte des courses (tuiles : [MAPS PROVIDER])
+  latlong2: ^0.9.1
+  geolocator: ^13.0.2            # position GPS (Android + Windows)
 
 dev_dependencies:
   flutter_test:
