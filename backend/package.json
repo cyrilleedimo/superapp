@@ -7,7 +7,8 @@
     "build": "tsc -p . && node -e \"require('fs').cpSync('db','dist/db',{recursive:true})\"",
     "migrate": "tsx --env-file=.env src/migrate.ts",
     "typecheck": "tsc -p . --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "local": "tsx --env-file=.env src/local.ts"
   },
   "dependencies": {
     "@fastify/cors": "^11.4.1",
@@ -23,6 +24,7 @@
   "devDependencies": {
     "@types/node": "^26.6.6",
     "@types/pg": "^8.23.1",
+    "embedded-postgres": "^18.6.0-beta.19",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vitest": "^5.1.0"

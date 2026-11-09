@@ -37,6 +37,8 @@ const schema = z
     RIDE_DISPATCH_RADIUS_KM: z.coerce.number().min(0.5).max(50).default(5),
     PAYOUT_MIN_XAF: z.coerce.number().int().min(1).default(1),
     DISABLE_JOBS: z.enum(['true', 'false']).default('false'),
+    // Dossier du miroir lisible « un fichier par utilisateur » (vide = désactivé).
+    EXPORT_DIR: z.string().optional(),
   })
   .superRefine((c, ctx) => {
     if (c.NODE_ENV === 'production' && c.PAYMENT_PROVIDER === 'sandbox') {

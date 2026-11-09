@@ -1,4 +1,4 @@
-# Prépare les projets natifs Windows + Android sur ton PC (une seule fois).
+﻿# Prépare les projets natifs Windows + Android sur ton PC (une seule fois).
 # Usage (PowerShell, dans le dossier app) :  .\tool\setup.ps1 -Org "[com.votre-domaine]"
 param([Parameter(Mandatory = $true)][string]$Org)
 $ErrorActionPreference = "Stop"

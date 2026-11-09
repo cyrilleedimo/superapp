@@ -7,6 +7,8 @@ import type { Ctx } from './context.js';
 import { startJobs } from './jobs.js';
 import { makeOrderService } from './modules/orders/service.js';
 import { MemorySmsSender } from './modules/auth/sms.js';
+import { exportAll, exportUser } from './lib/userExport.js';
+import { fileURLToPath } from 'node:url';
 import { makeTokenService } from './modules/auth/tokens.js';
 import { NotchPayProvider, SandboxProvider } from './modules/payments/provider.js';
 
@@ -31,16 +33,46 @@ export function buildContext(config: Config): Ctx {
   };
 }
 
-async function main() {
+/** Démarre l'API. `onStop` permet au lanceur local d'arrêter proprement la base embarquée. */
+export async function main(onStop?: () => Promise<void>) {
   const config = loadConfig();
   const ctx = buildContext(config);
   await migrate(ctx.db, (m) => console.log(m));
   const app = await buildApp(ctx);
+
+  // Miroir lisible par utilisateur (Bureau\Base de données\Utilisateurs) si EXPORT_DIR est défini.
+  let exportTimer: NodeJS.Timeout | undefined;
+  if (config.EXPORT_DIR) {
+    const dir = config.EXPORT_DIR;
+    app.addHook('onResponse', async (req, reply) => {
+      if (req.method !== 'GET' && req.user && reply.statusCode < 400) {
+        exportUser(ctx.db, dir, req.user.id).catch((e) => app.log.warn(`export: ${(e as Error).message}`));
+      }
+    });
+    const runAll = () => exportAll(ctx.db, dir).catch((e) => app.log.warn(`export: ${(e as Error).message}`));
+    exportTimer = setInterval(runAll, 30_000);
+    void runAll();
+    app.log.info(`fichiers utilisateurs : ${dir}`);
+  }
+
   await app.listen({ port: config.PORT, host: '0.0.0.0' });
   const stopJobs = config.DISABLE_JOBS === 'true' ? () => {} : startJobs(ctx, makeOrderService(ctx), (m) => app.log.info(m));
-  const stop = async () => { stopJobs(); await app.close(); await ctx.db.end(); process.exit(0); };
+  let stopping = false;
+  const stop = async () => {
+    if (stopping) return;
+    stopping = true;
+    stopJobs();
+    if (exportTimer) clearInterval(exportTimer);
+    await app.close();
+    await ctx.db.end();
+    if (onStop) await onStop();
+    process.exit(0);
+  };
   process.on('SIGTERM', stop);
   process.on('SIGINT', stop);
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+// Lancement direct (`node dist/src/server.js`), pas quand importé par le lanceur local.
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  main().catch((e) => { console.error(e); process.exit(1); });
+}

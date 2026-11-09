@@ -8,7 +8,10 @@ export type Db = pg.Pool;
 export type Tx = pg.PoolClient;
 
 export function createPool(url: string): Db {
-  return new pg.Pool({ connectionString: url, max: 10, idleTimeoutMillis: 30_000 });
+  const pool = new pg.Pool({ connectionString: url, max: 10, idleTimeoutMillis: 30_000 });
+  // Une connexion inactive coupée par la base (redémarrage, arrêt) ne doit pas faire planter l'API.
+  pool.on('error', (err) => console.warn(`postgres: connexion inactive perdue (${err.message})`));
+  return pool;
 }
 
 /** Exécute `fn` dans une transaction ; ROLLBACK automatique en cas d'erreur. */
