@@ -1,5 +1,6 @@
 // Vendre un article (avec photos), Profil (porte-monnaie, retraits, espaces
 // chauffeur / commerçant / admin), Notifications, et Administration.
+import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -207,6 +208,7 @@ class ProfileScreen extends ConsumerWidget {
               entry(Icons.drive_eta_outlined, 'Espace chauffeur', '/driver'),
               entry(Icons.storefront_outlined, 'Mes commerces (restaurant, boutique)', '/merchant'),
               if (isAdmin) entry(Icons.admin_panel_settings_outlined, 'Administration', '/admin'),
+              const _ServerAddressTile(),
               const SizedBox(height: 16),
               OutlinedButton(onPressed: () => ref.read(sessionProvider.notifier).logout(), child: const Text('Se déconnecter')),
             ]),
@@ -251,6 +253,63 @@ class ProfileScreen extends ConsumerWidget {
     }
     amount.dispose();
     phone.dispose();
+  }
+}
+
+// Adresse du serveur, modifiable depuis le profil sans se déconnecter : le client
+// relit AppConfig.apiUrl à chaque requête, donc la nouvelle adresse est prise en
+// compte immédiatement. Utile en mode pilote, où l'adresse du tunnel change à
+// chaque redémarrage du serveur.
+class _ServerAddressTile extends ConsumerStatefulWidget {
+  const _ServerAddressTile();
+  @override
+  ConsumerState<_ServerAddressTile> createState() => _ServerAddressTileState();
+}
+
+class _ServerAddressTileState extends ConsumerState<_ServerAddressTile> {
+  String? _error;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      ListTile(
+        leading: const Icon(Icons.dns_outlined),
+        title: const Text('Adresse du serveur'),
+        subtitle: Text(AppConfig.isConfigured ? AppConfig.apiUrl : 'à configurer',
+            style: const TextStyle(fontSize: 12)),
+        trailing: const Icon(Icons.edit_outlined, size: 18),
+        onTap: _edit,
+      ),
+      if (_error != null)
+        Padding(padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: Text(_error!, style: const TextStyle(color: LumoColors.danger, fontSize: 12))),
+    ]);
+  }
+
+  Future<void> _edit() async {
+    final c = TextEditingController(text: AppConfig.apiUrl.isEmpty ? 'https://' : AppConfig.apiUrl);
+    final url = await showDialog<String>(
+      context: context,
+      builder: (d) => AlertDialog(
+        title: const Text('Adresse du serveur'),
+        content: TextField(controller: c, keyboardType: TextInputType.url,
+            decoration: const InputDecoration(hintText: 'https://api.exemple.com')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(d), child: const Text('Fermer')),
+          TextButton(onPressed: () => Navigator.pop(d, c.text), child: const Text('Enregistrer')),
+        ],
+      ),
+    );
+    c.dispose();
+    if (url == null) return;
+    final err = await AppConfig.setServer(url);
+    if (!mounted) return;
+    setState(() => _error = err);
+    if (err == null) {
+      // Rafraîchit les écrans ouverts avec la nouvelle adresse, sans se déconnecter.
+      ref.invalidate(jsonProvider('/me'));
+      ref.invalidate(jsonProvider('/me/wallet'));
+    }
   }
 }
 
@@ -337,15 +396,16 @@ class AdminScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return DefaultTabController(
-      length: 5,
+      length: 6,
       child: Scaffold(
         appBar: AppBar(
           title: Text('Administration', style: Theme.of(context).textTheme.headlineSmall),
           bottom: const TabBar(isScrollable: true, tabs: [
-            Tab(text: 'Litiges'), Tab(text: 'Commerces'), Tab(text: 'Chauffeurs'), Tab(text: 'Retraits'), Tab(text: 'Codes SMS'),
+            Tab(text: 'Tableau de bord'), Tab(text: 'Litiges'), Tab(text: 'Commerces'), Tab(text: 'Chauffeurs'), Tab(text: 'Retraits'), Tab(text: 'Codes SMS'),
           ]),
         ),
         body: TabBarView(children: [
+          const _AdminDashboard(),
           _AdminList(path: '/admin/disputes', itemBuilder: (ctx, ref, x, reload) => ListTile(
             title: Text('${x['kind']} · ${formatXaf(asInt(x['totalXaf']))}'),
             subtitle: Text(x['reason'] as String? ?? ''),
@@ -386,6 +446,116 @@ class AdminScreen extends ConsumerWidget {
 
   static Future<void> _act(BuildContext context, WidgetRef ref, String path, Map<String, dynamic>? body, VoidCallback reload) async {
     if (await runAction(context, () => ref.read(apiClientProvider).post(path, body: body), success: 'Fait')) reload();
+  }
+}
+
+// Tableau de bord : totaux + tendance sur 14 jours (inscriptions, annonces, commandes/CA).
+class _AdminDashboard extends ConsumerWidget {
+  const _AdminDashboard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final async = ref.watch(jsonProvider('/admin/metrics'));
+    return async.when(
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (_, __) => const Center(child: Text('Impossible de charger le tableau de bord.')),
+      data: (json) {
+        final totals = (json['totals'] as Map).cast<String, dynamic>();
+        final days = (json['days'] as Map).cast<String, dynamic>();
+        final usersSeries = (days['users'] as List).cast<Map<String, dynamic>>();
+        final listingsSeries = (days['listings'] as List).cast<Map<String, dynamic>>();
+        final ordersSeries = (days['orders'] as List).cast<Map<String, dynamic>>();
+
+        return RefreshIndicator(
+          onRefresh: () async => ref.invalidate(jsonProvider('/admin/metrics')),
+          child: ListView(padding: const EdgeInsets.all(16), children: [
+            Wrap(spacing: 12, runSpacing: 12, children: [
+              _StatTile('Utilisateurs', '${totals['usersTotal']}'),
+              _StatTile('Annonces actives', '${totals['listingsActive']}'),
+              _StatTile('Commandes', '${totals['ordersTotal']}'),
+              _StatTile('Chiffre d\'affaires', formatXaf(asInt(totals['revenueTotalXaf']))),
+              _StatTile('Retraits en attente', '${totals['payoutsPending']} (${formatXaf(asInt(totals['payoutsPendingXaf']))})'),
+            ]),
+            const SizedBox(height: 24),
+            _TrendChart(title: 'Nouveaux utilisateurs (14 derniers jours)', series: usersSeries, valueKey: 'count'),
+            const SizedBox(height: 24),
+            _TrendChart(title: 'Nouvelles annonces (14 derniers jours)', series: listingsSeries, valueKey: 'count'),
+            const SizedBox(height: 24),
+            _TrendChart(title: 'Commandes (14 derniers jours)', series: ordersSeries, valueKey: 'count'),
+          ]),
+        );
+      },
+    );
+  }
+}
+
+class _StatTile extends StatelessWidget {
+  const _StatTile(this.label, this.value);
+  final String label, value;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context).textTheme;
+    return Container(
+      width: 160,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(color: LumoColors.mist, borderRadius: BorderRadius.circular(LumoRadius.card), border: Border.all(color: LumoColors.line)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(label, style: t.bodySmall),
+        const SizedBox(height: 4),
+        Text(value, style: t.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
+      ]),
+    );
+  }
+}
+
+// Courbe simple (fl_chart) + variation en % vs les 7 jours précédents.
+class _TrendChart extends StatelessWidget {
+  const _TrendChart({required this.title, required this.series, required this.valueKey});
+  final String title;
+  final List<Map<String, dynamic>> series;
+  final String valueKey;
+
+  @override
+  Widget build(BuildContext context) {
+    final values = series.map((d) => asInt(d[valueKey]).toDouble()).toList();
+    final half = values.length ~/ 2;
+    final recent = values.sublist(half).fold(0.0, (a, b) => a + b);
+    final previous = values.sublist(0, half).fold(0.0, (a, b) => a + b);
+    final trendPct = previous > 0 ? ((recent - previous) / previous * 100).round() : (recent > 0 ? 100 : 0);
+    final up = recent >= previous;
+    final maxY = (values.isEmpty ? 1.0 : values.reduce((a, b) => a > b ? a : b)).clamp(1.0, double.infinity);
+
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(children: [
+        Expanded(child: Text(title, style: Theme.of(context).textTheme.titleSmall)),
+        Icon(up ? Icons.trending_up : Icons.trending_down, size: 16, color: up ? LumoColors.success : LumoColors.danger),
+        const SizedBox(width: 4),
+        Text('${trendPct >= 0 ? '+' : ''}$trendPct %', style: TextStyle(color: up ? LumoColors.success : LumoColors.danger, fontWeight: FontWeight.w600)),
+      ]),
+      const SizedBox(height: 8),
+      SizedBox(
+        height: 120,
+        child: LineChart(LineChartData(
+          minY: 0,
+          maxY: maxY * 1.2,
+          gridData: const FlGridData(show: false),
+          titlesData: const FlTitlesData(show: false),
+          borderData: FlBorderData(show: false),
+          lineTouchData: const LineTouchData(enabled: false),
+          lineBarsData: [
+            LineChartBarData(
+              spots: [for (var i = 0; i < values.length; i++) FlSpot(i.toDouble(), values[i])],
+              isCurved: true,
+              color: LumoColors.action,
+              barWidth: 2,
+              dotData: const FlDotData(show: false),
+              belowBarData: BarAreaData(show: true, color: LumoColors.action.withValues(alpha: 0.12)),
+            ),
+          ],
+        )),
+      ),
+    ]);
   }
 }
 

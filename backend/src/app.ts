@@ -16,6 +16,7 @@ import { carpoolRoutes } from './modules/carpool/routes.js';
 import { rideRoutes } from './modules/rides/routes.js';
 import { storeRoutes } from './modules/stores/routes.js';
 import { travelRoutes } from './modules/travel/routes.js';
+import { adminMetricsRoutes } from './modules/admin/metrics.js';
 
 export async function buildApp(ctx: Ctx): Promise<FastifyInstance> {
   const app = Fastify({
@@ -65,5 +66,6 @@ export async function buildApp(ctx: Ctx): Promise<FastifyInstance> {
   await rideRoutes(app, ctx);
   await storeRoutes(app, ctx);
   await travelRoutes(app, null); // [TRAVEL API PARTNER] : brancher ici une implémentation de TravelProvider
+  await adminMetricsRoutes(app, ctx);
   return app;
 }
