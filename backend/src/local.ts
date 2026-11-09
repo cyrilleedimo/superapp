@@ -5,7 +5,6 @@
 //   PG_PORT       port local de la base (défaut 54329, jamais exposé sur Internet)
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import EmbeddedPostgres from 'embedded-postgres';
 
@@ -19,9 +18,9 @@ const pg = new EmbeddedPostgres({ databaseDir: dataDir, user: 'postgres', passwo
 // Sous Windows, PostgreSQL refuse de tourner avec des droits administrateur.
 // pg_ctl, l'outil officiel, abandonne ces droits (jeton restreint) avant de lancer le serveur.
 const isWindows = process.platform === 'win32';
-const pgCtl = isWindows
-  ? join(dirname(createRequire(import.meta.url).resolve('@embedded-postgres/windows-x64/package.json')), 'native', 'bin', 'pg_ctl.exe')
-  : '';
+// Le paquet binaire Windows exporte le chemin de pg_ctl (installé seulement sous Windows).
+const winPkg = '@embedded-postgres/windows-x64';
+const pgCtl: string = isWindows ? ((await import(winPkg)) as { pg_ctl: string }).pg_ctl : '';
 const logFile = join(dirname(dataDir), 'postgres.log');
 
 async function startDb() {
