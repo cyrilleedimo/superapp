@@ -242,7 +242,9 @@ class ProfileScreen extends ConsumerWidget {
               entry(Icons.drive_eta_outlined, 'Espace chauffeur', '/driver'),
               entry(Icons.storefront_outlined, 'Mes commerces (restaurant, boutique)', '/merchant'),
               if (isAdmin) entry(Icons.admin_panel_settings_outlined, 'Administration', '/admin'),
-              const _ServerAddressTile(),
+              // Réglage technique réservé à l'admin (le pilote tourne sur son PC) : les autres
+              // utilisateurs n'ont ni besoin ni intérêt à voir/changer l'adresse du serveur.
+              if (isAdmin) const _ServerAddressTile(),
               const SizedBox(height: 16),
               OutlinedButton(onPressed: () => ref.read(sessionProvider.notifier).logout(), child: const Text('Se déconnecter')),
             ]),

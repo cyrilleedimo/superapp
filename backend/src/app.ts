@@ -47,6 +47,10 @@ export async function buildApp(ctx: Ctx): Promise<FastifyInstance> {
 
   app.setErrorHandler((err, req, reply) => {
     if (err instanceof AppError) {
+      // Le détail n'est jamais renvoyé au client pour un 5xx (on ne fuite pas d'infos internes),
+      // mais il doit rester lisible côté serveur — sinon un bug comme « NotchPay répond 401 »
+      // ne laisse aucune trace dans les journaux et devient impossible à diagnostiquer.
+      if (err.status >= 500) req.log.error({ code: err.code, detail: err.message }, 'erreur applicative 5xx');
       return reply.code(err.status).send({ error: err.code, message: err.status < 500 ? err.message : undefined });
     }
     const status = (err as { statusCode?: number }).statusCode;
