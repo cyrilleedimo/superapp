@@ -18,12 +18,14 @@ const PRODUCT_COLS = `id, store_id AS "storeId", name, description, category, pr
   stock, available, photo_url AS "photoUrl"`;
 
 export async function storeRoutes(app: FastifyInstance, ctx: Ctx) {
-  const { db, config } = ctx;
+  const { db } = ctx;
   const auth = { preHandler: requireAuth(ctx) };
   const admin = { preHandler: requireAuth(ctx, ['admin']) };
   const idParam = z.object({ id: z.uuid() });
+  // Chemin relatif (pas une adresse absolue) car le serveur peut tourner derrière une
+  // adresse qui change (tunnel Cloudflare gratuit du mode « PC comme serveur »).
   const photo = z.string().max(500).refine(
-    (u) => u.startsWith('https://') || u.startsWith(`${config.PUBLIC_BASE_URL}/media/`), 'URL https ou média uploadé');
+    (u) => /^https:\/\/[^\s]+$/.test(u) || /^\/media\/[A-Za-z0-9-]+$/.test(u), 'URL https ou média uploadé');
 
   async function ownedStore(storeId: string, userId: string) {
     const r = await db.query<{ owner_id: string; kind: string }>('SELECT owner_id, kind FROM stores WHERE id=$1', [storeId]);

@@ -48,7 +48,11 @@ export async function mediaRoutes(app: FastifyInstance, ctx: Ctx) {
         `INSERT INTO media (owner_id, mime, bytes, sha256, storage_key) VALUES ($1,'image/webp',$2,$3,$4) RETURNING id`,
         [me(req).id, out.length, sha256Hex(out), key]);
       const id = r.rows[0]!.id;
-      return reply.code(201).send({ id, url: `${ctx.config.PUBLIC_BASE_URL}/media/${id}` });
+      // Chemin relatif, pas une adresse absolue : le serveur peut tourner derrière une
+      // adresse qui change (tunnel Cloudflare gratuit du mode « PC comme serveur »). Les
+      // clients complètent ce chemin avec l'adresse qu'ils utilisent déjà pour tout le
+      // reste — exactement comme pour les appels d'API.
+      return reply.code(201).send({ id, url: `/media/${id}` });
     });
 
   app.get('/media/:id', async (req, reply) => {

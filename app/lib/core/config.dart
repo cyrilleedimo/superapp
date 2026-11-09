@@ -42,4 +42,15 @@ class AppConfig {
   /// trafic intensif : en production, utiliser [MAPS PROVIDER] via --dart-define=MAP_TILE_URL=...
   static const tileUrl = String.fromEnvironment('MAP_TILE_URL',
       defaultValue: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png');
+
+  /// Les photos uploadées (annonces, boutiques) sont renvoyées par le serveur en chemin
+  /// relatif (ex. "/media/xxxx"), jamais en adresse absolue : le serveur peut tourner
+  /// derrière une adresse qui change (tunnel Cloudflare gratuit du mode « PC comme
+  /// serveur »). On complète ce chemin avec l'adresse actuellement configurée — la même
+  /// que celle utilisée pour tous les appels d'API.
+  static String resolveMediaUrl(String url) {
+    if (url.startsWith('http://') || url.startsWith('https://')) return url; // déjà absolue
+    if (url.isEmpty) return url;
+    return '$apiUrl$url';
+  }
 }

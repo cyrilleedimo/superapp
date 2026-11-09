@@ -1,5 +1,6 @@
 // Petits composants réutilisés : logo, badge de protection, visuel produit, carte article.
 import 'package:flutter/material.dart';
+import '../core/config.dart';
 import '../core/format.dart';
 import '../core/theme/tokens.dart';
 
@@ -64,7 +65,9 @@ class ProductVisual extends StatelessWidget {
         width: double.infinity,
         child: photoUrl == null
             ? placeholder
-            : Image.network(photoUrl!, fit: BoxFit.cover,
+            // Le serveur renvoie des chemins relatifs (ex. "/media/xxxx") pour que les
+            // photos restent accessibles même quand l'adresse du tunnel change.
+            : Image.network(AppConfig.resolveMediaUrl(photoUrl!), fit: BoxFit.cover,
                 errorBuilder: (_, __, ___) => placeholder,
                 loadingBuilder: (_, child, p) => p == null ? child : placeholder),
       ),

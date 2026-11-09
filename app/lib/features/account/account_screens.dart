@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../core/api/api_client.dart';
+import '../../core/config.dart';
 import '../../core/data.dart';
 import '../../core/format.dart';
 import '../../core/providers.dart';
@@ -92,7 +93,7 @@ class _SellScreenState extends ConsumerState<SellScreen> {
                       padding: const EdgeInsets.only(right: 8),
                       child: Stack(children: [
                         ClipRRect(borderRadius: BorderRadius.circular(12),
-                            child: Image.network(url, width: 100, height: 110, fit: BoxFit.cover)),
+                            child: Image.network(AppConfig.resolveMediaUrl(url), width: 100, height: 110, fit: BoxFit.cover)),
                         Positioned(right: 2, top: 2, child: IconButton.filled(
                           tooltip: 'Retirer', iconSize: 16,
                           style: IconButton.styleFrom(backgroundColor: Colors.white, foregroundColor: LumoColors.ink, minimumSize: const Size(32, 32)),
