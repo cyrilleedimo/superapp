@@ -7,6 +7,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import EmbeddedPostgres from 'embedded-postgres';
+import pgLib from 'pg';
 
 const dataDir = process.env.PG_DATA_DIR;
 const password = process.env.PG_PASSWORD;
@@ -46,8 +47,15 @@ if (firstRun) {
 // Une base restée allumée après un arrêt brutal est d'abord arrêtée proprement.
 if (isWindows && existsSync(join(dataDir, 'postmaster.pid'))) await stopDb();
 await startDb();
-// Toujours vérifier la base applicative (un premier démarrage a pu être interrompu).
-try { await pg.createDatabase('superapp'); } catch { /* existe déjà */ }
+// Crée la base applicative si besoin (un premier démarrage a pu être interrompu).
+// Connexion explicite en IPv4 : la base n'écoute que sur 127.0.0.1.
+{
+  const admin = new pgLib.Client({ host: '127.0.0.1', port, user: 'postgres', password, database: 'postgres' });
+  await admin.connect();
+  const exists = await admin.query(`SELECT 1 FROM pg_database WHERE datname = 'superapp'`);
+  if (!exists.rowCount) await admin.query('CREATE DATABASE superapp');
+  await admin.end();
+}
 console.log(`Base de données prête (${dataDir})`);
 
 process.env.DATABASE_URL = `postgres://postgres:${encodeURIComponent(password)}@127.0.0.1:${port}/superapp`;
