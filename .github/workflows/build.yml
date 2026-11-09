@@ -88,7 +88,7 @@ jobs:
           path: app/build/Lumo-*.apk
 
   windows:
-    runs-on: windows-latest
+    runs-on: windows-2022   # Visual Studio 2022, reconnu par Flutter 3.27
     defaults:
       run:
         working-directory: app
