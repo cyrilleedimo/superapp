@@ -5,6 +5,7 @@ import type { Ctx } from '../../context.js';
 import { notFound, parse } from '../../lib/errors.js';
 import { makeAuthService } from './service.js';
 import { me, requireAuth } from './guard.js';
+import { MemorySmsSender } from './sms.js';
 
 const phone = z.string().regex(/^\+[1-9][0-9]{7,14}$/, 'format E.164 attendu, ex. +2376XXXXXXXX');
 const password = z.string().min(10, '10 caractères minimum').max(128);
@@ -50,6 +51,20 @@ export async function authRoutes(app: FastifyInstance, ctx: Ctx) {
     const b = parse(z.object({ refreshToken: z.string().min(20).max(200) }), req.body);
     await auth.logout(b.refreshToken);
     return reply.code(204).send();
+  });
+
+  // Mode pilote uniquement (aucun fournisseur SMS réel branché) : donne à un admin
+  // un accès structuré aux derniers codes envoyés, pour remplacer la lecture manuelle
+  // du journal serveur. En production, ctx.sms n'est jamais un MemorySmsSender — cette
+  // route renvoie alors une liste vide, elle n'existe tout simplement pas pour de vrai.
+  app.get('/admin/pilot-sms', { preHandler: requireAuth(ctx, ['admin']) }, async () => {
+    if (!(ctx.sms instanceof MemorySmsSender)) return { items: [] };
+    const items = [...ctx.sms.outbox].reverse().slice(0, 30).map((m) => ({
+      phone: m.phone,
+      code: m.text.match(/\b(\d{6})\b/)?.[1] ?? null,
+      text: m.text,
+    }));
+    return { items };
   });
 
   app.get('/me', { preHandler: requireAuth(ctx) }, async (req) => {

@@ -336,12 +336,12 @@ class AdminScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return DefaultTabController(
-      length: 4,
+      length: 5,
       child: Scaffold(
         appBar: AppBar(
           title: Text('Administration', style: Theme.of(context).textTheme.headlineSmall),
           bottom: const TabBar(isScrollable: true, tabs: [
-            Tab(text: 'Litiges'), Tab(text: 'Commerces'), Tab(text: 'Chauffeurs'), Tab(text: 'Retraits'),
+            Tab(text: 'Litiges'), Tab(text: 'Commerces'), Tab(text: 'Chauffeurs'), Tab(text: 'Retraits'), Tab(text: 'Codes SMS'),
           ]),
         ),
         body: TabBarView(children: [
@@ -373,6 +373,10 @@ class AdminScreen extends ConsumerWidget {
               TextButton(onPressed: () => _act(ctx, ref, '/admin/payouts/${x['id']}/decision', {'paid': false}, reload), child: const Text('Refuser')),
               TextButton(onPressed: () => _act(ctx, ref, '/admin/payouts/${x['id']}/decision', {'paid': true}, reload), child: const Text('Marquer versé')),
             ]),
+          )),
+          _AdminList(path: '/admin/pilot-sms', itemBuilder: (ctx, ref, x, reload) => ListTile(
+            title: Text(x['code'] as String? ?? '—', style: const TextStyle(fontWeight: FontWeight.w700, letterSpacing: 2)),
+            subtitle: Text(x['phone'] as String? ?? ''),
           )),
         ]),
       ),
