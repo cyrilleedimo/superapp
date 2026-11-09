@@ -1,8 +1,9 @@
 ﻿# Installe le serveur Lumo sur ce PC Windows (à lancer une seule fois).
 #   - Node.js LTS et cloudflared via winget (l'installeur officiel de Windows)
 #   - code du serveur dans %LOCALAPPDATA%\Lumo\serveur
-#   - données dans  Bureau\Base de données\
-#        système\        base PostgreSQL embarquée (ne pas modifier)
+#   - moteur de base PostgreSQL embarqué dans %LOCALAPPDATA%\Lumo\base-systeme
+#     (hors du Bureau : OneDrive corromprait une base active en la synchronisant)
+#   - Bureau\Base de données\
 #        Utilisateurs\   un fichier lisible par utilisateur
 #        photos\         images envoyées par les utilisateurs
 #   - raccourci « Démarrer le serveur Lumo » sur le bureau
@@ -48,7 +49,7 @@ TRUST_PROXY_HOPS=1
 JWT_SECRET=$(Rand 32)
 PG_PASSWORD=$(Rand 24)
 PG_PORT=54329
-PG_DATA_DIR=$(Join-Path $DataRoot "système")
+PG_DATA_DIR=$(Join-Path $env:LOCALAPPDATA "Lumo\base-systeme")
 EXPORT_DIR=$(Join-Path $DataRoot "Utilisateurs")
 UPLOAD_DIR=$(Join-Path $DataRoot "photos")
 # Frais de protection acheteur (500 = 5 %). DÉCISION COMMERCIALE.
