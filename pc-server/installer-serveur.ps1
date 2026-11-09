@@ -8,6 +8,7 @@
 #        photos\         images envoyées par les utilisateurs
 #   - raccourci « Démarrer le serveur Lumo » sur le bureau
 $ErrorActionPreference = "Stop"
+$ProgressPreference = "SilentlyContinue"
 $Desktop = [Environment]::GetFolderPath("Desktop")
 $DataRoot = Join-Path $Desktop "Base de données"
 $AppDir = Join-Path $env:LOCALAPPDATA "Lumo\serveur"
@@ -24,7 +25,9 @@ Need cloudflared "Cloudflare.cloudflared"
 
 # Code du serveur (dossier backend du dépôt)
 $zip = Join-Path $env:TEMP "lumo-main.zip"
-Invoke-WebRequest "https://github.com/cyrilleedimo/superapp/archive/refs/heads/main.zip" -OutFile $zip
+# curl.exe (intégré à Windows 10/11) : Invoke-WebRequest peut se bloquer sur certains PC
+curl.exe -sSL --fail --max-time 300 -o $zip "https://github.com/cyrilleedimo/superapp/archive/refs/heads/main.zip"
+if ($LASTEXITCODE -ne 0) { throw "Téléchargement du code impossible" }
 $tmp = Join-Path $env:TEMP "lumo-src"
 if (Test-Path $tmp) { Remove-Item $tmp -Recurse -Force }
 Expand-Archive $zip $tmp
