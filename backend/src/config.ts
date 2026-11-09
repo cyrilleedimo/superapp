@@ -39,6 +39,10 @@ const schema = z
     DISABLE_JOBS: z.enum(['true', 'false']).default('false'),
     // Dossier du miroir lisible « un fichier par utilisateur » (vide = désactivé).
     EXPORT_DIR: z.string().optional(),
+    // Clé API Google AI Studio (gratuite) : https://aistudio.google.com/apikey
+    // Vide = assistant « décrire avec l'IA » désactivé (503 plutôt qu'une réponse inventée).
+    GEMINI_API_KEY: z.string().optional(),
+    GEMINI_MODEL: z.string().default('gemini-2.0-flash'),
   })
   .superRefine((c, ctx) => {
     if (c.NODE_ENV === 'production' && c.PAYMENT_PROVIDER === 'sandbox') {

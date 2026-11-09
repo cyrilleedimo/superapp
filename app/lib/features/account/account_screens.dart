@@ -32,6 +32,7 @@ class _SellScreenState extends ConsumerState<SellScreen> {
   String _condition = 'very_good';
   bool _busy = false;
   bool _uploading = false;
+  bool _suggesting = false;
   String? _error;
 
   @override
@@ -54,6 +55,28 @@ class _SellScreenState extends ConsumerState<SellScreen> {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.userMessage)));
     } finally {
       if (mounted) setState(() => _uploading = false);
+    }
+  }
+
+  // Suggestion de titre/description à partir des photos déjà envoyées. Le vendeur reste
+  // libre de tout corriger : c'est une aide, jamais une donnée fiable à publier telle quelle.
+  Future<void> _suggestDescription() async {
+    if (_photos.isEmpty) return;
+    setState(() => _suggesting = true);
+    try {
+      final photoIds = _photos.map((u) => u.split('/').last).toList();
+      final r = await ref.read(apiClientProvider).post('/listings/suggest-description', body: {'photoIds': photoIds});
+      if (!mounted) return;
+      setState(() {
+        _title.text = r['title'] as String? ?? _title.text;
+        _desc.text = r['description'] as String? ?? _desc.text;
+      });
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Suggestion de l\'IA ajoutée — relis et corrige avant de publier.')));
+    } on ApiException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.userMessage)));
+    } finally {
+      if (mounted) setState(() => _suggesting = false);
     }
   }
 
@@ -118,7 +141,17 @@ class _SellScreenState extends ConsumerState<SellScreen> {
                     ),
                 ]),
               ),
-              const SizedBox(height: 16),
+              if (_photos.isNotEmpty) Padding(
+                padding: const EdgeInsets.only(top: 4, bottom: 12),
+                child: OutlinedButton.icon(
+                  onPressed: _suggesting ? null : _suggestDescription,
+                  icon: _suggesting
+                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.auto_awesome_outlined, size: 18),
+                  label: const Text('Décrire avec l\'IA'),
+                ),
+              ),
+              const SizedBox(height: 4),
               TextFormField(controller: _title, decoration: const InputDecoration(labelText: 'Titre'), validator: required, maxLength: 120),
               TextFormField(controller: _desc, decoration: const InputDecoration(labelText: 'Description'), maxLines: 4, maxLength: 4000),
               DropdownButtonFormField<String>(
