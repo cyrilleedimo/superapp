@@ -10,7 +10,7 @@ import pathlib
 import re
 import sys
 
-APP_TITLE = sys.argv[1] if len(sys.argv) > 1 else "Lumo"
+APP_TITLE = sys.argv[1] if len(sys.argv) > 1 else "Ovia"
 root = pathlib.Path(__file__).resolve().parent.parent
 
 

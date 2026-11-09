@@ -1,6 +1,6 @@
-; Installeur Windows (Inno Setup 6) — produit « Lumo-Setup.exe ».
+; Installeur Windows (Inno Setup 6) — produit « Ovia-Setup.exe ».
 ; Compilé par la CI ; en local : iscc installer\setup.iss  (après flutter build windows)
-#define AppName "Lumo"
+#define AppName "Ovia"
 #define AppVersion GetEnv("APP_VERSION")
 #if AppVersion == ""
   #define AppVersion "1.0.0"

@@ -3,29 +3,22 @@ import 'package:flutter/material.dart';
 import '../core/format.dart';
 import '../core/theme/tokens.dart';
 
+/// Logo Ovia (symbole + nom). `light` : version blanche pour fonds sombres.
 class LumoLogo extends StatelessWidget {
-  const LumoLogo({super.key, this.size = 30});
+  const LumoLogo({super.key, this.size = 30, this.light = false, this.markOnly = false});
   final double size;
+  final bool light;
+  final bool markOnly;
 
   @override
   Widget build(BuildContext context) {
+    final file = markOnly
+        ? (light ? 'assets/ovia_mark_light.png' : 'assets/ovia_mark_dark.png')
+        : (light ? 'assets/ovia_lockup_light.png' : 'assets/ovia_lockup_dark.png');
     return Semantics(
-      label: 'Lumo', // nom de travail — à remplacer par [APP NAME]
-      child: Row(mainAxisSize: MainAxisSize.min, children: [
-        Container(
-          width: size, height: size,
-          decoration: BoxDecoration(color: LumoColors.action, borderRadius: BorderRadius.circular(size * 0.3)),
-          alignment: Alignment.center,
-          child: Container(
-            width: size * 0.37, height: size * 0.37,
-            decoration: const BoxDecoration(color: LumoColors.lime, shape: BoxShape.circle),
-          ),
-        ),
-        const SizedBox(width: 8),
-        ExcludeSemantics(
-          child: Text('lumo', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontSize: size * 0.73)),
-        ),
-      ]),
+      label: 'Ovia',
+      image: true,
+      child: Image.asset(file, height: size, fit: BoxFit.contain, filterQuality: FilterQuality.medium),
     );
   }
 }

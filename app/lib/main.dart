@@ -17,7 +17,7 @@ class SuperApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return MaterialApp.router(
-      title: 'Lumo', // nom de travail → [APP NAME]
+      title: 'Ovia',
       debugShowCheckedModeBanner: false,
       theme: buildLumoTheme(),
       routerConfig: ref.watch(routerProvider),

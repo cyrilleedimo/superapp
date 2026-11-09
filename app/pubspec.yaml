@@ -42,3 +42,8 @@ flutter_launcher_icons:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/ovia_lockup_dark.png
+    - assets/ovia_lockup_light.png
+    - assets/ovia_mark_dark.png
+    - assets/ovia_mark_light.png

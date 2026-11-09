@@ -1,4 +1,4 @@
-# Super-app (nom de travail « Lumo ») — v1.0
+# Ovia — super-app — v1.0
 
 Super-app : **seconde main** (messagerie, offres), **VTC**, **covoiturage**, **repas**, **boutiques locales**, **voyages**, le tout avec **paiement séquestre**, porte-monnaie, retraits Mobile Money et espace d'administration.
 App **Flutter** (Windows + Android 12+) et API **Node.js/TypeScript + PostgreSQL**.
@@ -94,7 +94,7 @@ Un autre prestataire s'ajoute en implémentant l'interface `PaymentProvider` (`s
 ## 5. Obtenir l'APK et l'installeur Windows sans rien installer
 
 Chaque envoi sur `main` déclenche **GitHub Actions** (`.github/workflows/build.yml`) :
-tests du backend → APK Android 12+ → installeur Windows `Lumo-Setup-x.y.z.exe` → **Release** GitHub.
+tests du backend → APK Android 12+ → installeur Windows `Ovia-Setup-x.y.z.exe` → **Release** GitHub.
 Télécharge les fichiers dans l'onglet **Releases** du dépôt.
 
 ## 6. Mettre le serveur en ligne

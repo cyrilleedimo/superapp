@@ -1,17 +1,17 @@
-﻿# Installe le serveur Lumo sur ce PC Windows (à lancer une seule fois).
+﻿# Installe le serveur Ovia sur ce PC Windows (à lancer une seule fois).
 #   - Node.js LTS et cloudflared via winget (l'installeur officiel de Windows)
-#   - code du serveur dans %LOCALAPPDATA%\Lumo\serveur
-#   - moteur de base PostgreSQL embarqué dans %LOCALAPPDATA%\Lumo\base-systeme
+#   - code du serveur dans %LOCALAPPDATA%\Ovia\serveur
+#   - moteur de base PostgreSQL embarqué dans %LOCALAPPDATA%\Ovia\base-systeme
 #     (hors du Bureau : OneDrive corromprait une base active en la synchronisant)
 #   - Bureau\Base de données\
 #        Utilisateurs\   un fichier lisible par utilisateur
 #        photos\         images envoyées par les utilisateurs
-#   - raccourci « Démarrer le serveur Lumo » sur le bureau
+#   - raccourci « Démarrer le serveur Ovia » sur le bureau
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 $Desktop = [Environment]::GetFolderPath("Desktop")
 $DataRoot = Join-Path $Desktop "Base de données"
-$AppDir = Join-Path $env:LOCALAPPDATA "Lumo\serveur"
+$AppDir = Join-Path $env:LOCALAPPDATA "Ovia\serveur"
 
 function Need($cmd, $wingetId) {
   if (-not (Get-Command $cmd -ErrorAction SilentlyContinue)) {
@@ -24,11 +24,11 @@ Need node "OpenJS.NodeJS.LTS"
 Need cloudflared "Cloudflare.cloudflared"
 
 # Code du serveur (dossier backend du dépôt)
-$zip = Join-Path $env:TEMP "lumo-main.zip"
+$zip = Join-Path $env:TEMP "ovia-main.zip"
 # curl.exe (intégré à Windows 10/11) : Invoke-WebRequest peut se bloquer sur certains PC
 curl.exe -sSL --fail --max-time 300 -o $zip "https://github.com/cyrilleedimo/superapp/archive/refs/heads/main.zip"
 if ($LASTEXITCODE -ne 0) { throw "Téléchargement du code impossible" }
-$tmp = Join-Path $env:TEMP "lumo-src"
+$tmp = Join-Path $env:TEMP "ovia-src"
 if (Test-Path $tmp) { Remove-Item $tmp -Recurse -Force }
 Expand-Archive $zip $tmp
 New-Item -ItemType Directory -Force -Path $AppDir | Out-Null
@@ -52,7 +52,7 @@ TRUST_PROXY_HOPS=1
 JWT_SECRET=$(Rand 32)
 PG_PASSWORD=$(Rand 24)
 PG_PORT=54329
-PG_DATA_DIR=$(Join-Path $env:LOCALAPPDATA "Lumo\base-systeme")
+PG_DATA_DIR=$(Join-Path $env:LOCALAPPDATA "Ovia\base-systeme")
 EXPORT_DIR=$(Join-Path $DataRoot "Utilisateurs")
 UPLOAD_DIR=$(Join-Path $DataRoot "photos")
 # Frais de protection acheteur (500 = 5 %). DÉCISION COMMERCIALE.
@@ -68,9 +68,9 @@ SANDBOX_WEBHOOK_SECRET=$(Rand 24)
 }
 
 # Raccourci sur le bureau
-$lnk = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $Desktop "Démarrer le serveur Lumo.lnk"))
+$lnk = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $Desktop "Démarrer le serveur Ovia.lnk"))
 $lnk.TargetPath = "powershell.exe"
 $lnk.Arguments = "-NoExit -ExecutionPolicy Bypass -File `"$(Join-Path $AppDir 'demarrer-serveur.ps1')`""
 $lnk.WorkingDirectory = $AppDir
 $lnk.Save()
-Write-Host "Installation terminée. Double-clique sur « Démarrer le serveur Lumo » sur le bureau."
+Write-Host "Installation terminée. Double-clique sur « Démarrer le serveur Ovia » sur le bureau."

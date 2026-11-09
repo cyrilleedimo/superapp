@@ -1,11 +1,11 @@
-﻿# Démarre le serveur Lumo + le tunnel https Cloudflare, et affiche l'adresse à
+﻿# Démarre le serveur Ovia + le tunnel https Cloudflare, et affiche l'adresse à
 # coller dans l'app (écran de connexion → « Serveur »).
 # Laisse cette fenêtre ouverte : la fermer arrête le serveur pour tous les utilisateurs.
 $ErrorActionPreference = "Stop"
 $AppDir = $PSScriptRoot
 $Desktop = [Environment]::GetFolderPath("Desktop")
 $DataRoot = Join-Path $Desktop "Base de données"
-$logs = Join-Path $env:LOCALAPPDATA "Lumo\logs"
+$logs = Join-Path $env:LOCALAPPDATA "Ovia\logs"
 New-Item -ItemType Directory -Force -Path $logs | Out-Null
 
 # Empêche la mise en veille tant que le serveur tourne.

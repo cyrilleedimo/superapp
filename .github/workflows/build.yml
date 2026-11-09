@@ -5,7 +5,7 @@
 #   - le tout attaché à une « Release » GitHub téléchargeable.
 # Variables du dépôt (Settings → Secrets and variables → Actions → Variables) :
 #   API_URL      adresse https du serveur (facultatif : réglable aussi dans l'app)
-#   APP_ORG      identifiant d'organisation Android, ex. com.monentreprise (défaut : app.lumo)
+#   APP_ORG      identifiant d'organisation Android, ex. com.monentreprise (défaut : app.ovia)
 name: build
 
 on:
@@ -71,9 +71,9 @@ jobs:
           cache: true
       - name: Générer le projet Android
         run: |
-          flutter create --platforms=android --org "${{ vars.APP_ORG || 'app.lumo' }}" --project-name superapp .
+          flutter create --platforms=android --org "${{ vars.APP_ORG || 'app.ovia' }}" --project-name superapp .
           rm -f test/widget_test.dart   # test d'exemple du modèle Flutter (référence MyApp)
-          python3 tool/patch_platforms.py "Lumo"
+          python3 tool/patch_platforms.py "Ovia"
       - run: flutter pub get
       - run: dart run flutter_launcher_icons
       - name: Analyse statique
@@ -81,11 +81,11 @@ jobs:
       - run: flutter test
       - name: Compiler l'APK
         run: flutter build apk --release --build-name "$APP_VERSION" --build-number "${{ github.run_number }}" --dart-define=API_URL="${{ vars.API_URL }}"
-      - run: cp build/app/outputs/flutter-apk/app-release.apk "build/Lumo-$APP_VERSION.apk"
+      - run: cp build/app/outputs/flutter-apk/app-release.apk "build/Ovia-$APP_VERSION.apk"
       - uses: actions/upload-artifact@v4
         with:
           name: android-apk
-          path: app/build/Lumo-*.apk
+          path: app/build/Ovia-*.apk
 
   windows:
     runs-on: windows-2022   # Visual Studio 2022, reconnu par Flutter 3.27
@@ -102,9 +102,9 @@ jobs:
           cache: true
       - name: Générer le projet Windows
         run: |
-          flutter create --platforms=windows --org "${{ vars.APP_ORG || 'app.lumo' }}" --project-name superapp .
+          flutter create --platforms=windows --org "${{ vars.APP_ORG || 'app.ovia' }}" --project-name superapp .
           Remove-Item test\widget_test.dart -ErrorAction SilentlyContinue
-          python tool/patch_platforms.py "Lumo"
+          python tool/patch_platforms.py "Ovia"
       - run: flutter pub get
       - run: dart run flutter_launcher_icons -f tool/icons_windows.yaml
       - name: Compiler l'app Windows
@@ -137,10 +137,10 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ env.APP_VERSION }}
-          name: Lumo ${{ env.APP_VERSION }}
+          name: Ovia ${{ env.APP_VERSION }}
           body: |
             Version compilée automatiquement.
             - **Android 12+** : télécharge le fichier `.apk` et ouvre-le sur le téléphone (autorise « sources inconnues »).
-            - **Windows 10/11** : télécharge `Lumo-Setup-….exe` et lance l'installation.
+            - **Windows 10/11** : télécharge `Ovia-Setup-….exe` et lance l'installation.
             Au premier lancement, si l'app demande l'adresse du serveur : écran de connexion → « Serveur ».
           files: dist/*

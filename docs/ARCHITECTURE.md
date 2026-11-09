@@ -1,6 +1,6 @@
 # Super-app — Architecture (Phase 1)
 
-> « Lumo » est un **nom de travail**. Remplacer par **[APP NAME]** partout (`app/lib/main.dart`, `widgets/common.dart`).
+> Nom de l'application : **Ovia** (logo fourni par Edimo Paul Cyrille, intégré dans `app/assets/`).
 > Les valeurs entre crochets sont des **décisions business non prises** : rien n'a été inventé.
 
 ---
@@ -110,7 +110,7 @@ Le canevas de design (écrans + composants) fait référence. Les jetons sont co
 
 | Jeton | Valeur | Usage |
 |---|---|---|
-| Bleu Lumo | `#2B3CF0` | **Seule** couleur d'action |
+| Bleu Ovia | `#2B3CF0` | **Seule** couleur d'action |
 | Bleu brume | `#EBEDFF` | Sélection |
 | Citron | `#D4F34A` | Avantage / nouveauté, jamais un bouton |
 | Encre | `#0E1116` | Texte |
