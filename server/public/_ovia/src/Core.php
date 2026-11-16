@@ -8,7 +8,8 @@ namespace Ovia;
 /** Erreur métier : un code stable que l'application traduit, et un statut HTTP. */
 final class AppError extends \Exception
 {
-    public function __construct(public readonly int $status, public readonly string $errorCode, ?string $message = null)
+    /** @param array<string,mixed> $extra champs ajoutés à la réponse d'erreur (jamais de secret d'un autre compte) */
+    public function __construct(public readonly int $status, public readonly string $errorCode, ?string $message = null, public readonly array $extra = [])
     {
         parent::__construct($message ?? $errorCode);
     }

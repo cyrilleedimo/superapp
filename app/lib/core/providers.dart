@@ -41,16 +41,20 @@ class SessionController extends Notifier<SessionState> {
   Future<void> login(String identifier, String password) async =>
       _open(await _api.post('/auth/login', body: {'identifier': identifier, 'password': password}));
 
-  Future<void> register({required String name, required String email, required String password, String? phone}) =>
-      _api.post('/auth/register', body: {
-        'displayName': name, 'email': email, 'password': password,
-        if (phone != null && phone.isNotEmpty) 'phone': phone,
-      });
+  /// Renvoie le jeton de vérification : seul cet appareil pourra valider le code reçu par e-mail.
+  Future<String> register({required String name, required String email, required String password, String? phone}) async {
+    final r = await _api.post('/auth/register', body: {
+      'displayName': name, 'email': email, 'password': password,
+      if (phone != null && phone.isNotEmpty) 'phone': phone,
+    });
+    return (r['verifyToken'] as String?) ?? '';
+  }
 
-  Future<void> verify(String email, String code) async =>
-      _open(await _api.post('/auth/verify-email', body: {'email': email, 'code': code}));
+  Future<void> verify(String email, String code, String verifyToken) async =>
+      _open(await _api.post('/auth/verify-email', body: {'email': email, 'code': code, 'verifyToken': verifyToken}));
 
-  Future<void> resendCode(String email) => _api.post('/auth/resend-code', body: {'email': email});
+  Future<void> resendCode(String email, String verifyToken) =>
+      _api.post('/auth/resend-code', body: {'email': email, 'verifyToken': verifyToken});
 
   Future<void> forgotPassword(String email) => _api.post('/auth/forgot-password', body: {'email': email});
 

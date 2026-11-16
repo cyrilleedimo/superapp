@@ -412,7 +412,9 @@ final class App
         } catch (AppError $e) {
             // Le détail d'un 5xx n'est jamais renvoyé au client, mais il est journalisé.
             if ($e->status >= 500) error_log("Ovia 5xx {$e->errorCode} : {$e->getMessage()}");
-            self::send($e->status, ['error' => $e->errorCode] + ($e->status < 500 && $e->getMessage() !== $e->errorCode ? ['message' => $e->getMessage()] : []));
+            self::send($e->status, ['error' => $e->errorCode]
+                + ($e->status < 500 && $e->getMessage() !== $e->errorCode ? ['message' => $e->getMessage()] : [])
+                + ($e->status < 500 ? $e->extra : []));
         } catch (\Throwable $e) {
             error_log('Ovia erreur : ' . $e->getMessage() . ' @ ' . basename($e->getFile()) . ':' . $e->getLine());
             self::send($started ? 500 : 503, ['error' => $started ? 'internal_error' : 'server_not_ready']);

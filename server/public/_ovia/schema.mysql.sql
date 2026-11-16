@@ -16,7 +16,7 @@ CREATE UNIQUE INDEX users_email_uq ON users (email);
 CREATE UNIQUE INDEX users_phone_uq ON users (phone);
 CREATE TABLE otp_codes (
   id CHAR(36) NOT NULL PRIMARY KEY, user_id CHAR(36) NOT NULL, purpose VARCHAR(20) NOT NULL, target VARCHAR(190) NOT NULL,
-  code_hash VARCHAR(64) NOT NULL, attempts INT NOT NULL DEFAULT 0, expires_at DATETIME NOT NULL, consumed_at DATETIME NULL,
+  code_hash VARCHAR(64) NOT NULL, bind_hash VARCHAR(64) NULL, attempts INT NOT NULL DEFAULT 0, expires_at DATETIME NOT NULL, consumed_at DATETIME NULL,
   created_at DATETIME NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 CREATE INDEX otp_user_idx ON otp_codes (user_id, purpose, created_at);
 CREATE TABLE refresh_tokens (

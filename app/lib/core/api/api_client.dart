@@ -5,10 +5,13 @@ import '../auth/token_store.dart';
 import '../config.dart';
 
 class ApiException implements Exception {
-  ApiException(this.code, {this.status, this.message});
+  ApiException(this.code, {this.status, this.message, this.data = const {}});
   final String code;
   final int? status;
   final String? message;
+
+  /// Champs supplémentaires renvoyés par le serveur avec l'erreur.
+  final Map<String, dynamic> data;
 
   /// Message prêt à afficher, en français, sans jamais blâmer l'utilisateur.
   String get userMessage => switch (code) {
@@ -135,7 +138,8 @@ class ApiClient {
     } on DioException catch (e) {
       final data = e.response?.data;
       if (data is Map && data['error'] is String) {
-        throw ApiException(data['error'] as String, status: e.response?.statusCode, message: data['message'] as String?);
+        throw ApiException(data['error'] as String,
+            status: e.response?.statusCode, message: data['message'] as String?, data: data.cast<String, dynamic>());
       }
       if (e.error == 'server_not_configured') throw ApiException('server_not_configured');
       throw ApiException('network', status: e.response?.statusCode);

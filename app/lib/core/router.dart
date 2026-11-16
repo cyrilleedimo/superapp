@@ -61,7 +61,8 @@ final routerProvider = Provider<GoRouter>((ref) {
       page('/help', (_) => const HelpScreen()),
       page('/login', (s) => LoginScreen(next: s.uri.queryParameters['next'])),
       page('/register', (s) => RegisterScreen(next: s.uri.queryParameters['next'])),
-      page('/verify', (s) => VerifyScreen(email: s.uri.queryParameters['email'] ?? '', next: s.uri.queryParameters['next'])),
+      page('/verify', (s) => VerifyScreen(
+          email: s.uri.queryParameters['email'] ?? '', verifyToken: s.uri.queryParameters['vt'] ?? '', next: s.uri.queryParameters['next'])),
       page('/forgot', (s) => ForgotPasswordScreen(next: s.uri.queryParameters['next'])),
       page('/add-email', (_) => const AddEmailScreen()),
       page('/listing/:id', (s) => ListingDetailScreen(id: s.pathParameters['id']!)),

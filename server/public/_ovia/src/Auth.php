@@ -32,13 +32,19 @@ final class Auth
         return ['accessToken' => Jwt::sign((string) App::$config['jwt_secret'], $userId, $role), 'refreshToken' => $refresh, 'expiresIn' => Jwt::TTL];
     }
 
-    /** Crée un code et l'envoie. Renvoie faux si l'e-mail n'a pas pu partir. */
-    private static function sendCode(string $userId, string $purpose, string $email): bool
+    /**
+     * Crée un code et l'envoie. Renvoie faux si l'e-mail n'a pas pu partir.
+     * $bind : jeton connu du seul appareil qui a fait la demande. Sans lui, le code est inutilisable :
+     * personne ne peut « pré-inscrire » l'adresse de quelqu'un d'autre puis profiter du code qu'il saisit.
+     */
+    private static function sendCode(string $userId, string $purpose, string $email, ?string $bind = null): bool
     {
         $code = Util::otp();
+        // Un nouveau code remplace les précédents : un seul code valable à la fois.
+        App::$db->run('UPDATE otp_codes SET consumed_at=? WHERE user_id=? AND purpose=? AND consumed_at IS NULL', [Util::now(), $userId, $purpose]);
         App::$db->insert('otp_codes', [
             'id' => Util::uuid(), 'user_id' => $userId, 'purpose' => $purpose, 'target' => $email,
-            'code_hash' => self::otpHash($userId, $purpose, $code), 'attempts' => 0,
+            'code_hash' => self::otpHash($userId, $purpose, $code), 'bind_hash' => $bind === null ? null : hash('sha256', $bind), 'attempts' => 0,
             'expires_at' => Util::now(self::OTP_TTL_MIN * 60), 'consumed_at' => null, 'created_at' => Util::now(),
         ]);
         return Mailer::sendCode($email, $code, $purpose);
@@ -53,12 +59,13 @@ final class Auth
      * Vérifie un code. Les échecs sont RENVOYÉS (pas levés) pour que le compteur d'essais soit enregistré.
      * @return array{target:string}|null
      */
-    private static function consumeCode(Db $db, string $userId, string $purpose, string $code): ?array
+    private static function consumeCode(Db $db, string $userId, string $purpose, string $code, ?string $bind = null): ?array
     {
-        $otp = $db->one('SELECT id, code_hash, attempts, expires_at, target FROM otp_codes
+        $otp = $db->one('SELECT id, code_hash, bind_hash, attempts, expires_at, target FROM otp_codes
                          WHERE user_id=? AND purpose=? AND consumed_at IS NULL ORDER BY created_at DESC, id DESC LIMIT 1' . $db->lock(), [$userId, $purpose]);
         if (!$otp || $otp['expires_at'] < Util::now() || (int) $otp['attempts'] >= self::OTP_MAX_ATTEMPTS) return null;
-        if (!hash_equals((string) $otp['code_hash'], self::otpHash($userId, $purpose, $code))) {
+        $bound = $otp['bind_hash'] === null || ($bind !== null && hash_equals((string) $otp['bind_hash'], hash('sha256', $bind)));
+        if (!$bound || !hash_equals((string) $otp['code_hash'], self::otpHash($userId, $purpose, $code))) {
             $db->run('UPDATE otp_codes SET attempts = attempts + 1 WHERE id=?', [$otp['id']]);
             return null;
         }
@@ -111,6 +118,7 @@ final class Auth
                     if ($other && $other['id'] !== ($existing['id'] ?? null)) throw AppError::conflict('phone_exists');
                 }
                 if ($existing) {
+                    if (self::tooSoon((string) $existing['id'], 'verify_email')) throw new AppError(429, 'code_too_soon');
                     // Inscription jamais terminée : la personne recommence, on met à jour au lieu de bloquer.
                     $db->run('UPDATE users SET display_name=?, phone=?, password_hash=?, updated_at=? WHERE id=?', [$name, $phone, $hash, Util::now(), $existing['id']]);
                     return (string) $existing['id'];
@@ -128,20 +136,25 @@ final class Auth
                 }
                 return $id;
             });
-            $sent = self::tooSoon($userId, 'verify_email') ? true : self::sendCode($userId, 'verify_email', $email);
+            $verifyToken = Util::token(24);
+            $sent = self::sendCode($userId, 'verify_email', $email, $verifyToken);
             App::audit($userId, 'user.register', 'user', $userId);
             $r->status = 201;
-            return ['userId' => $userId, 'next' => 'verify_email', 'email' => $email, 'emailSent' => $sent];
+            return ['userId' => $userId, 'next' => 'verify_email', 'email' => $email, 'emailSent' => $sent, 'verifyToken' => $verifyToken];
         }, $strict);
 
         App::route('POST', '/auth/resend-code', function (Req $r) use ($db) {
             $email = $r->body()->email('email');
+            $token = $r->body()->str('verifyToken', 16, 80);
             $u = $db()->one('SELECT id, status FROM users WHERE email=?', [$email]);
             $r->status = 202;
             // Réponse identique que le compte existe ou non (pas d'énumération).
             if (!$u || $u['status'] !== 'pending') return ['ok' => true];
+            // Seul l'appareil qui a lancé l'inscription peut demander un nouveau code.
+            $last = $db()->one("SELECT bind_hash FROM otp_codes WHERE user_id=? AND purpose='verify_email' ORDER BY created_at DESC, id DESC LIMIT 1", [$u['id']]);
+            if (!$last || $last['bind_hash'] === null || !hash_equals((string) $last['bind_hash'], hash('sha256', $token))) return ['ok' => true];
             if (self::tooSoon((string) $u['id'], 'verify_email')) throw new AppError(429, 'code_too_soon');
-            self::sendCode((string) $u['id'], 'verify_email', $email);
+            self::sendCode((string) $u['id'], 'verify_email', $email, $token);
             return ['ok' => true];
         }, $strict);
 
@@ -149,9 +162,10 @@ final class Auth
             $b = $r->body();
             $email = $b->email('email');
             $code = $b->str('code', 6, 6);
-            $user = $db()->tx(function (Db $db) use ($email, $code): ?array {
+            $token = $b->str('verifyToken', 16, 80);
+            $user = $db()->tx(function (Db $db) use ($email, $code, $token): ?array {
                 $u = $db->one('SELECT id, role, status FROM users WHERE email=?' . $db->lock(), [$email]);
-                if (!$u || !self::consumeCode($db, (string) $u['id'], 'verify_email', $code)) return null;
+                if (!$u || !self::consumeCode($db, (string) $u['id'], 'verify_email', $code, $token)) return null;
                 $db->run("UPDATE users SET status=CASE WHEN status='pending' THEN 'active' ELSE status END, email_verified=1, updated_at=? WHERE id=?", [Util::now(), $u['id']]);
                 // Tout premier compte du serveur (aucun administrateur encore) : il devient l'administrateur.
                 if (!$db->one("SELECT id FROM users WHERE role='admin' LIMIT 1")) {
@@ -191,8 +205,11 @@ final class Auth
             if ($u['status'] === 'suspended') throw AppError::forbidden('account_suspended');
             if ($u['status'] === 'pending') {
                 // Bon mot de passe mais e-mail jamais confirmé : on renvoie un code et l'app ouvre l'écran de vérification.
-                if (!self::tooSoon((string) $u['id'], 'verify_email')) self::sendCode((string) $u['id'], 'verify_email', (string) $u['email']);
-                throw new AppError(403, 'email_not_verified', (string) $u['email']);
+                // Le bon mot de passe prouve que c'est le titulaire : il reçoit un nouveau code lié à son appareil.
+                if (self::tooSoon((string) $u['id'], 'verify_email')) throw new AppError(429, 'code_too_soon');
+                $verifyToken = Util::token(24);
+                self::sendCode((string) $u['id'], 'verify_email', (string) $u['email'], $verifyToken);
+                throw new AppError(403, 'email_not_verified', (string) $u['email'], ['verifyToken' => $verifyToken]);
             }
             $sets = 'failed_logins=0, locked_until=NULL';
             $args = [];

@@ -47,7 +47,7 @@ function lastCode(string $email): ?string {
 function signup(string $name, string $email, ?string $phone = null): array {
     [$st, $j] = call('POST', '/auth/register', ['displayName' => $name, 'email' => $email, 'password' => 'motdepasse-123'] + ($phone ? ['phone' => $phone] : []));
     ok("inscription $email", $st === 201, [$st, $j]);
-    [$st, $j] = call('POST', '/auth/verify-email', ['email' => $email, 'code' => lastCode(strtolower($email))]);
+    [$st, $j] = call('POST', '/auth/verify-email', ['email' => $email, 'code' => lastCode(strtolower($email)), 'verifyToken' => $j['verifyToken']]);
     ok("vérification $email", $st === 200 && isset($j['accessToken']), [$st, $j]);
     return $j;
 }
@@ -78,11 +78,17 @@ $seller = signup('Awa Vendeuse', 'awa@example.com', '+237670000001'); $sellerTok
 $buyer = signup('Ben Acheteur', 'ben@example.com', '+237670000002'); $buyerTok = $buyer['accessToken'];
 [$st, $j] = call('POST', '/auth/login', ['identifier' => '+237 670 00 00 02', 'password' => 'motdepasse-123']); ok('connexion par téléphone', $st === 200, [$st, $j]);
 [$st, $j] = call('POST', '/auth/login', ['identifier' => 'ben@example.com', 'password' => 'mauvais']); ok('mauvais mot de passe = 401', $st === 401 && $j['error'] === 'invalid_credentials', $j);
-// inscription non terminée puis connexion → 403 email_not_verified, puis reprise
-[$st, $j] = call('POST', '/auth/register', ['displayName' => 'Cléo', 'email' => 'cleo@example.com', 'password' => 'motdepasse-123']);
-[$st, $j] = call('POST', '/auth/login', ['identifier' => 'cleo@example.com', 'password' => 'motdepasse-123']); ok('non vérifié = 403', $st === 403 && $j['error'] === 'email_not_verified', [$st, $j]);
-[$st, $j] = call('POST', '/auth/verify-email', ['email' => 'cleo@example.com', 'code' => '000000']); ok('mauvais code = 401', $st === 401, [$st, $j]);
-[$st, $j] = call('POST', '/auth/verify-email', ['email' => 'cleo@example.com', 'code' => lastCode('cleo@example.com')]); ok('bon code', $st === 200, [$st, $j]); $cleoTok = $j['accessToken'];
+// inscription non terminée : un tiers ne peut ni la détourner ni utiliser le code
+[$st, $reg] = call('POST', '/auth/register', ['displayName' => 'Cléo', 'email' => 'cleo@example.com', 'password' => 'motdepasse-123']);
+$victimCode = lastCode('cleo@example.com');
+[$st, $j] = call('POST', '/auth/register', ['displayName' => 'Pirate', 'email' => 'cleo@example.com', 'password' => 'mot-du-pirate-1']); ok('ré-inscription immédiate par un tiers bloquée', $st === 429, [$st, $j]);
+[$st, $j] = call('POST', '/auth/verify-email', ['email' => 'cleo@example.com', 'code' => $victimCode, 'verifyToken' => 'jeton-invente-par-un-tiers']); ok('code inutilisable sans le jeton de l\'appareil', $st === 401, [$st, $j]);
+[$st, $j] = call('POST', '/auth/verify-email', ['email' => 'cleo@example.com', 'code' => '000000', 'verifyToken' => $reg['verifyToken']]); ok('mauvais code = 401', $st === 401, [$st, $j]);
+// connexion avant vérification → 403 + nouveau code lié à cet appareil
+db()->exec("UPDATE otp_codes SET created_at='2020-01-01 00:00:00'");
+[$st, $j] = call('POST', '/auth/login', ['identifier' => 'cleo@example.com', 'password' => 'motdepasse-123']); ok('non vérifié = 403 avec jeton', $st === 403 && $j['error'] === 'email_not_verified' && isset($j['verifyToken']), [$st, $j]);
+[$st, $x] = call('POST', '/auth/verify-email', ['email' => 'cleo@example.com', 'code' => $victimCode, 'verifyToken' => $reg['verifyToken']]); ok('ancien code remplacé', $st === 401, [$st, $x]);
+[$st, $j] = call('POST', '/auth/verify-email', ['email' => 'cleo@example.com', 'code' => lastCode('cleo@example.com'), 'verifyToken' => $j['verifyToken']]); ok('bon code + bon jeton', $st === 200, [$st, $j]); $cleoTok = $j['accessToken'];
 [$st, $c] = call('GET', '/me', null, $cleoTok); ok('2e compte = simple utilisateur', $c['role'] === 'user', $c); $cleoId = $c['id'];
 // rotation des jetons + détection de réutilisation
 [$st, $r1] = call('POST', '/auth/refresh', ['refreshToken' => $buyer['refreshToken']]); ok('refresh', $st === 200, [$st, $r1]);

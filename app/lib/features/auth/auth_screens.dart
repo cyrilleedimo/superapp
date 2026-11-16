@@ -174,7 +174,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> with _Submitting<Logi
         // Bon mot de passe mais e-mail jamais confirmé : un code vient d'être renvoyé.
         if (e.code == 'email_not_verified' && mounted) {
           final email = (e.message != null && e.message!.contains('@')) ? e.message! : raw;
-          context.go(_withNext('/verify?email=${Uri.encodeQueryComponent(email)}', widget.next));
+          final vt = (e.data['verifyToken'] as String?) ?? '';
+          context.go(_withNext('/verify?email=${Uri.encodeQueryComponent(email)}&vt=${Uri.encodeQueryComponent(vt)}', widget.next));
           return;
         }
         rethrow;
@@ -232,17 +233,20 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> with _Submittin
     if (_pwd.text.length < 8) { setState(() => error = 'Le mot de passe doit faire au moins 8 caractères.'); return; }
     final phoneDigits = _phone.text.replaceAll(RegExp(r'\D'), '');
     run(() async {
-      await ref.read(sessionProvider.notifier).register(
+      final vt = await ref.read(sessionProvider.notifier).register(
           name: _name.text.trim(), email: email, password: _pwd.text, phone: phoneDigits.isEmpty ? null : toE164(_phone.text));
-      if (mounted) context.go(_withNext('/verify?email=${Uri.encodeQueryComponent(email)}', widget.next));
+      if (mounted) context.go(_withNext('/verify?email=${Uri.encodeQueryComponent(email)}&vt=${Uri.encodeQueryComponent(vt)}', widget.next));
     });
   }
 }
 
 // ----------------------------------------------------- Vérification de l'e-mail
 class VerifyScreen extends ConsumerStatefulWidget {
-  const VerifyScreen({super.key, required this.email, this.next});
+  const VerifyScreen({super.key, required this.email, required this.verifyToken, this.next});
   final String email;
+
+  /// Jeton reçu à l'inscription : sans lui, le code ne peut pas être validé depuis un autre appareil.
+  final String verifyToken;
   final String? next;
   @override
   ConsumerState<VerifyScreen> createState() => _VerifyScreenState();
@@ -259,6 +263,12 @@ class _VerifyScreenState extends ConsumerState<VerifyScreen> with _Submitting<Ve
         subtitle: 'Saisis le code à 6 chiffres envoyé à ${widget.email}. Pense à regarder dans les courriers indésirables.',
         onBack: () => context.go('/login'),
         children: [
+          if (widget.verifyToken.isEmpty)
+            const Padding(
+              padding: EdgeInsets.only(bottom: 12),
+              child: Text('Cette page a été ouverte hors de l\'inscription. Reviens à la connexion et saisis ton mot de passe : un nouveau code te sera envoyé.',
+                  style: TextStyle(color: LumoColors.warning, fontWeight: FontWeight.w600)),
+            ),
           _codeField(_code, onFull: (_) => _submit()),
           const SizedBox(height: 20),
           _errorText(error),
@@ -271,11 +281,11 @@ class _VerifyScreenState extends ConsumerState<VerifyScreen> with _Submitting<Ve
 
   void _submit() {
     if (_code.text.length != 6 || busy) return;
-    run(() => ref.read(sessionProvider.notifier).verify(widget.email, _code.text));
+    run(() => ref.read(sessionProvider.notifier).verify(widget.email, _code.text, widget.verifyToken));
   }
 
   void _resend() => run(() async {
-        await ref.read(sessionProvider.notifier).resendCode(widget.email);
+        await ref.read(sessionProvider.notifier).resendCode(widget.email, widget.verifyToken);
         if (mounted) setState(() => info = 'Nouveau code envoyé.');
       });
 }
