@@ -10,7 +10,7 @@ file_put_contents("$priv/data/comptes-importes.json", json_encode(['users' => [[
     'id' => 'b9a1cc66-141f-4983-a668-592bcda4721c', 'phone' => '+237699000111', 'email' => null, 'display_name' => 'Ancien Admin',
     'password_hash' => $legacyHash, 'status' => 'active', 'role' => 'admin', 'created_at' => '2026-11-09T04:01:42.500Z']],
     'settings' => ['payments.provider' => 'notchpay', 'notchpay.public_key' => 'pk_test.exemple', 'fees.buyer_bps' => 500, 'inconnu' => 'x']]));
-$proc = proc_open(['php', '-S', "127.0.0.1:$port", '-t', "$root/public", "$root/tests/router.php"], [1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes);
+$proc = proc_open(['php', '-S', "127.0.0.1:$port", '-t', "$root/public", "$root/tests/router.php"], [1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes, null, ['OVIA_NO_DEMO' => '1'] + getenv());
 register_shutdown_function(fn () => proc_terminate($proc)); usleep(600000);
 $fail = 0;
 function call(string $m, string $path, mixed $body = null, ?string $token = null): array {
