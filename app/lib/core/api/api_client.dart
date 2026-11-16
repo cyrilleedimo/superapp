@@ -28,6 +28,7 @@ class ApiException implements Exception {
         'order_not_payable' => 'Cette commande n\'est plus à payer.',
         'order_not_cancellable' => 'Cette commande ne peut plus être annulée.',
         'user_not_found' => 'Personne introuvable.',
+        'demo_listing' => 'C\'est une annonce d\'exemple : elle n\'est pas réellement à vendre.',
         'group_full' => 'Ce groupe est complet (50 membres).',
         'wrong_key_type' => 'Notch Pay attend ici la clé PUBLIQUE (pk…), pas la clé secrète.',
         'database_unreachable' => 'Connexion à la base impossible. Vérifie le nom, l\'utilisateur et le mot de passe.',

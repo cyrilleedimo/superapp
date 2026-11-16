@@ -20,6 +20,7 @@ final class Market
             'id' => $l['id'], 'sellerId' => $l['seller_id'], 'title' => $l['title'], 'description' => $l['description'],
             'category' => $l['category'], 'condition' => $l['item_condition'], 'priceXaf' => (int) $l['price_xaf'], 'city' => $l['city'],
             'photos' => json_decode((string) $l['photos'], true) ?: [], 'status' => $l['status'], 'createdAt' => Util::iso((string) $l['created_at']),
+            'isDemo' => (bool) (int) ($l['is_demo'] ?? 0),
         ];
     }
 
@@ -88,7 +89,7 @@ final class Market
                 'category' => $b->enum('category', self::CATEGORIES), 'item_condition' => $b->enum('condition', self::CONDITIONS),
                 'price_xaf' => $b->int('priceXaf', 1, 100000000), 'city' => $city, 'city_key' => Util::fold($city),
                 'photos' => (string) json_encode(self::photos($b)), 'search_text' => Util::fold("$title $desc"), 'status' => 'active',
-                'created_at' => Util::now(), 'updated_at' => Util::now(),
+                'created_at' => Util::now(), 'updated_at' => Util::now(), 'is_demo' => 0,
             ]);
             App::audit($r->uid(), 'listing.create', 'listing', $id);
             $r->status = 201;
@@ -129,12 +130,7 @@ final class Market
         App::route('POST', '/media', function (Req $r) use ($db) {
             $raw = $r->raw;
             if ($raw === '' || strlen($raw) > self::MAX_BYTES) throw new AppError(strlen($raw) > self::MAX_BYTES ? 413 : 415, 'unsupported_image');
-            [$data, $mime, $ext] = self::reencode($raw);
-            $key = Util::token(18) . '.' . $ext;
-            if (file_put_contents(App::$dataDir . '/uploads/' . $key, $data, LOCK_EX) === false) throw new \RuntimeException('écriture du média impossible');
-            $id = Util::uuid();
-            $db()->insert('media', ['id' => $id, 'owner_id' => $r->uid(), 'mime' => $mime, 'bytes' => strlen($data), 'sha256' => hash('sha256', $data),
-                                    'storage_key' => $key, 'created_at' => Util::now()]);
+            $id = self::storeImage($raw, $r->uid());
             $r->status = 201;
             // Chemin relatif : l'application le complète avec l'adresse du serveur qu'elle utilise déjà.
             return ['id' => $id, 'url' => "/media/$id"];
@@ -171,6 +167,18 @@ final class Market
                 throw new AppError(502, 'ai_unavailable', $e->getMessage());
             }
         }, $auth + ['limit' => [10, 60]]);
+    }
+
+    /** Vérifie, ré-encode et range une image. Renvoie l'identifiant du média. */
+    public static function storeImage(string $raw, string $ownerId): string
+    {
+        [$data, $mime, $ext] = self::reencode($raw);
+        $key = Util::token(18) . '.' . $ext;
+        if (file_put_contents(App::$dataDir . '/uploads/' . $key, $data, LOCK_EX) === false) throw new \RuntimeException('écriture du média impossible');
+        $id = Util::uuid();
+        App::$db->insert('media', ['id' => $id, 'owner_id' => $ownerId, 'mime' => $mime, 'bytes' => strlen($data), 'sha256' => hash('sha256', $data),
+                                   'storage_key' => $key, 'created_at' => Util::now()]);
+        return $id;
     }
 
     /**

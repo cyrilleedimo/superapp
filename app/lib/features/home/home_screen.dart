@@ -145,7 +145,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           final l = items[i];
                           return ListingCard(
                             id: l.id, title: l.title, priceXaf: l.priceXaf, condition: l.condition,
-                            photoUrl: l.photos.isEmpty ? null : l.photos.first,
+                            photoUrl: l.photos.isEmpty ? null : l.photos.first, isDemo: l.isDemo,
                             onTap: () => context.push('/listing/${l.id}'),
                           );
                         },

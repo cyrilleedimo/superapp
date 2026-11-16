@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/api/api_client.dart';
+import '../../core/data.dart';
 import '../../core/format.dart';
 import '../../core/providers.dart';
 import '../../core/theme/tokens.dart';
@@ -64,7 +65,20 @@ class _Body extends StatelessWidget {
         const SizedBox(height: 16),
         Text(formatXaf(l.priceXaf), style: t.headlineMedium),
         const SizedBox(height: 4),
-        const ProtectionBadge('Protection acheteur si tu paies en ligne'),
+        if (l.isDemo)
+          Container(
+            margin: const EdgeInsets.only(top: 6),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(color: LumoColors.actionSoft, borderRadius: BorderRadius.circular(14)),
+            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Icon(Icons.info_outline_rounded, color: LumoColors.action, size: 20),
+              const SizedBox(width: 10),
+              Expanded(child: Text('Annonce d\'exemple : elle montre à quoi ressemble une annonce, mais cet article n\'est pas réellement à vendre.',
+                  style: t.bodyMedium)),
+            ]),
+          )
+        else
+          const ProtectionBadge('Protection acheteur si tu paies en ligne'),
         if (l.photos.length > 1)
           Padding(padding: const EdgeInsets.only(top: 6), child: Text('${l.photos.length} photos — fais défiler', style: t.bodySmall)),
         const SizedBox(height: 16),
@@ -173,6 +187,14 @@ class _Actions extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final signedIn = ref.watch(signedInProvider);
+    // Annonce d'exemple : seul un administrateur peut la commander (simulation) ; les autres sont invités à publier.
+    final isAdmin = signedIn && ref.watch(jsonProvider('/me')).valueOrNull?['role'] == 'admin';
+    if (l.isDemo && available && !isAdmin) {
+      return FilledButton(
+        onPressed: () => context.push(signedIn ? '/sell' : '/login?next=${Uri.encodeQueryComponent('/sell')}'),
+        child: const Text('Publier ma propre annonce'),
+      );
+    }
     // Sans compte, on peut tout regarder ; pour agir, on passe par la connexion puis on revient ici.
     void needAccount() => context.push('/login?next=${Uri.encodeQueryComponent('/listing/${l.id}')}');
     if (!available) {

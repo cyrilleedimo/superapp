@@ -131,8 +131,23 @@ final class Admin
                 'paymentsReady' => Payments::provider() !== null,
                 'webhookUrl' => App::publicUrl() . '/api/webhooks/payments',
                 'publicUrl' => App::publicUrl(),
+                'demo' => Demo::status(),
             ];
         }, $admin);
+
+        // Annonces d'exemple : les remettre ou les retirer à la main.
+        App::route('POST', '/admin/demo', function (Req $r) {
+            $action = $r->body()->enum('action', ['install', 'remove']);
+            if ($action === 'install') {
+                App::$settings->set('demo.enabled', '1');
+                App::$settings->set('demo.state', 'installing', false);
+                Demo::install(100);
+            } else {
+                Demo::remove();
+            }
+            App::audit($r->uid(), "demo.$action", 'system');
+            return Demo::status();
+        }, $admin + ['limit' => [6, 60]]);
 
         // Bascule vers MySQL : on vérifie la connexion, on enregistre, et la requête suivante recopie le fichier.
         App::route('POST', '/admin/database', function (Req $r) {
@@ -177,6 +192,7 @@ final class Jobs
         $last = (int) (App::$settings->raw('jobs.last_run') ?? 0);
         if (!$force && time() - $last < 60) return;
         App::$settings->set('jobs.last_run', (string) time(), false);
+        try { Demo::tick(); } catch (\Throwable $e) { error_log('Ovia exemples : ' . $e->getMessage()); }
         $expired = Orders::expirePending();
         $released = Orders::autoRelease();
         // Ménage : codes et compteurs périmés, vieux journaux d'e-mails.

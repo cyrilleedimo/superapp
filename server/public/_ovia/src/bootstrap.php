@@ -13,7 +13,7 @@ ini_set('log_errors', '1');
 mb_internal_encoding('UTF-8');
 date_default_timezone_set('UTC');
 
-foreach (['Core', 'Db', 'App', 'Mailer', 'Auth', 'Orders', 'Market', 'Messaging', 'Services', 'Admin'] as $f) {
+foreach (['Core', 'Db', 'App', 'Mailer', 'Auth', 'Orders', 'Market', 'Messaging', 'Services', 'Admin', 'Demo'] as $f) {
     require __DIR__ . "/$f.php";
 }
 // Les erreurs PHP sont consignées dans un journal privé du dossier data/ (jamais affichées).

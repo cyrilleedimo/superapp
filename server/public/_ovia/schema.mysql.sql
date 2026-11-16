@@ -131,6 +131,10 @@ CREATE TABLE mail_outbox (
   status VARCHAR(10) NOT NULL, error VARCHAR(250) NULL, created_at DATETIME NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 INSERT IGNORE INTO schema_migrations (version, applied_at) VALUES ('001_base', UTC_TIMESTAMP());
 
+-- ---- 002_exemples
+ALTER TABLE listings ADD COLUMN is_demo TINYINT NOT NULL DEFAULT 0;
+INSERT IGNORE INTO schema_migrations (version, applied_at) VALUES ('002_exemples', UTC_TIMESTAMP());
+
 -- Comptes du grand livre
 INSERT IGNORE INTO ledger_accounts (id, code, kind, created_at) VALUES (UUID(), 'escrow', 'liability', UTC_TIMESTAMP());
 INSERT IGNORE INTO ledger_accounts (id, code, kind, created_at) VALUES (UUID(), 'psp:clearing', 'asset', UTC_TIMESTAMP());

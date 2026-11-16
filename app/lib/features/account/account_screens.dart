@@ -604,6 +604,10 @@ const _settingGroups = <String, List<_Setting>>{
     _Setting('gemini.api_key', 'Clé Google AI Studio (Gemini)', help: 'Sert à « Décrire avec l\'IA ». Vide = assistant désactivé.'),
     _Setting('gemini.model', 'Modèle Gemini'),
   ],
+  'Annonces d\'exemple': [
+    _Setting('demo.enabled', 'Afficher des annonces d\'exemple', help: 'Elles rendent l\'accueil vivant au lancement. Marquées « Exemple », achetables par l\'admin seulement.'),
+    _Setting('demo.remove_after', 'Les retirer après ce nombre de vraies annonces', help: 'Retrait automatique et définitif. 0 = jamais automatique.'),
+  ],
   'Général': [
     _Setting('app.name', 'Nom affiché dans les e-mails'),
     _Setting('app.public_url', 'Adresse publique du site', help: 'Vide = détectée automatiquement. Ex. https://app.itsscm.org'),
@@ -754,6 +758,8 @@ class _AdminSettings extends ConsumerWidget {
                     Text('Données : ${sys['storageLabel']}'),
                     Text('Paiement en ligne : ${sys['paymentsReady'] == true ? 'prêt' : 'non configuré'}'),
                     Text('E-mails : ${sys['mailMode']} · expéditeur ${sys['mailFrom']}'),
+                    if (sys['demo'] is Map)
+                      Text('Annonces : ${(sys['demo'] as Map)['realListings']} vraies · ${(sys['demo'] as Map)['active']} d\'exemple'),
                     const SizedBox(height: 4),
                     SelectableText('Adresse à donner à Notch Pay (webhook) :\n${sys['webhookUrl']}', style: t.bodySmall),
                     const SizedBox(height: 12),
@@ -761,6 +767,19 @@ class _AdminSettings extends ConsumerWidget {
                       OutlinedButton(
                         style: OutlinedButton.styleFrom(minimumSize: const Size(0, 44)),
                         onPressed: () => _testMail(context, ref), child: const Text('Tester l\'envoi d\'e-mail')),
+                      if (sys['demo'] is Map)
+                        OutlinedButton(
+                          style: OutlinedButton.styleFrom(minimumSize: const Size(0, 44)),
+                          onPressed: () async {
+                            final remove = asInt((sys['demo'] as Map)['active']) > 0;
+                            if (await runAction(context, () => ref.read(apiClientProvider).post('/admin/demo', body: {'action': remove ? 'remove' : 'install'}),
+                                success: remove ? 'Annonces d\'exemple retirées' : 'Annonces d\'exemple installées')) {
+                              ref.invalidate(jsonProvider(_sysPath));
+                            }
+                          },
+                          child: Text(asInt((sys['demo'] as Map)['active']) > 0
+                              ? 'Retirer les ${asInt((sys['demo'] as Map)['active'])} annonces d\'exemple'
+                              : 'Installer les annonces d\'exemple')),
                       if (sys['storage'] == 'file')
                         OutlinedButton(
                           style: OutlinedButton.styleFrom(minimumSize: const Size(0, 44)),

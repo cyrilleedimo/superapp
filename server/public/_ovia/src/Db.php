@@ -306,6 +306,9 @@ final class Db
             'CREATE TABLE mail_outbox (
                id {AUTO}, to_email VARCHAR(190) NOT NULL, subject VARCHAR(190) NOT NULL, code VARCHAR(10) NULL,
                status VARCHAR(10) NOT NULL, error VARCHAR(250) NULL, created_at {DT} NOT NULL){TAIL}',
+        ], '002_exemples' => [
+            // Annonces d'exemple du lancement : visibles, mais achetables seulement par un admin.
+            'ALTER TABLE listings ADD COLUMN is_demo TINYINT NOT NULL DEFAULT 0',
         ]];
     }
 

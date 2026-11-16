@@ -5,3 +5,4 @@ dist/
 server/public/_ovia/config.php
 server/public/_ovia/data/
 comptes-importes.json
+server/public/_ovia/demo/img/

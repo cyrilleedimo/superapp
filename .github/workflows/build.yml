@@ -140,6 +140,8 @@ jobs:
           dart run flutter_launcher_icons -f tool/icons_web.yaml
           # --no-web-resources-cdn : le moteur d'affichage est servi par notre hébergeur, pas par un CDN tiers.
           flutter build web --release --no-web-resources-cdn --build-name "$APP_VERSION" --build-number "${{ github.run_number }}"
+      - name: Photos des annonces d'exemple (Wikimedia Commons, CC0)
+        run: php server/tools/fetch-demo-images.php
       - name: Assembler le paquet serveur
         run: |
           mkdir -p paquet dist

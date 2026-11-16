@@ -454,9 +454,12 @@ final class Orders
             $buyerId = $r->uid();
             $key = $r->idempotencyKey();
             if ($replay = self::findReplay($buyerId, $key)) return self::view($replay);
-            $order = $db()->tx(function (Db $db) use ($listingId, $offerId, $buyerId, $key): array {
-                $l = $db->one('SELECT seller_id, price_xaf, status, title FROM listings WHERE id=?' . $db->lock(), [$listingId]);
+            $isAdmin = ($r->user['role'] ?? '') === 'admin';
+            $order = $db()->tx(function (Db $db) use ($listingId, $offerId, $buyerId, $key, $isAdmin): array {
+                $l = $db->one('SELECT seller_id, price_xaf, status, title, is_demo FROM listings WHERE id=?' . $db->lock(), [$listingId]);
                 if (!$l) throw AppError::notFound('listing_not_found');
+                // Annonce d'exemple : seul un administrateur peut la « commander » (simulation).
+                if ((int) $l['is_demo'] && !$isAdmin) throw AppError::forbidden('demo_listing');
                 if ($l['seller_id'] === $buyerId) throw AppError::forbidden('cannot_buy_own_listing');
                 if ($l['status'] !== 'active') throw AppError::conflict('listing_unavailable');
                 $price = (int) $l['price_xaf'];

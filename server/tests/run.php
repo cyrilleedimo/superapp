@@ -9,7 +9,8 @@ $keep = getenv('KEEP_CONFIG');
 foreach (["$priv/config.php"] as $f) if (is_file($f) && !$keep) unlink($f);
 exec('rm -rf ' . escapeshellarg("$priv/data"));
 if ($argv[1] ?? '' === 'with-import') {}
-$proc = proc_open(['php', '-S', "127.0.0.1:$port", '-t', "$root/public", "$root/tests/router.php"], [1 => ['file', '/tmp/ovia-test-server.log', 'w'], 2 => ['file', '/tmp/ovia-test-server.log', 'a']], $pipes);
+// Les annonces d'exemple ne s'installent pas toutes seules pendant les tests (elles ont leur propre test plus bas).
+$proc = proc_open(['php', '-S', "127.0.0.1:$port", '-t', "$root/public", "$root/tests/router.php"], [1 => ['file', '/tmp/ovia-test-server.log', 'w'], 2 => ['file', '/tmp/ovia-test-server.log', 'a']], $pipes, null, ['OVIA_NO_DEMO' => '1'] + getenv());
 register_shutdown_function(function () use ($proc) { proc_terminate($proc); });
 usleep(600000);
 
@@ -235,13 +236,35 @@ $pk = ['text' => 'Akwa', 'lat' => 4.05, 'lng' => 9.70]; $dp = ['text' => 'Bonapr
 foreach (['arrived', 'in_progress', 'completed'] as $s) { [$st, $j] = call('POST', "/rides/{$ride['id']}/status", ['status' => $s], $sellerTok); ok("course $s", $j['status'] === $s, $j); }
 [$st, $j] = call('GET', '/travel/flights?from=DLA&to=CDG&departDate=2027-01-01'); ok('voyages : pas de partenaire = 503 honnête', $st === 503 && $j['error'] === 'travel_not_configured', $j);
 
+// ---------------------------------------------------------------- Annonces d'exemple
+$im2 = imagecreatetruecolor(900, 600); imagefill($im2, 0, 0, imagecolorallocate($im2, 200, 120, 40)); @mkdir("$priv/demo/img", 0755, true);
+$made = []; foreach (json_decode(file_get_contents("$priv/demo/annonces.json"), true) as $it) { $f = "$priv/demo/img/{$it['key']}.img"; if (!is_file($f)) { imagejpeg($im2, $f); $made[] = $f; } }
+[$st, $d] = call('POST', '/admin/demo', ['action' => 'install'], $buyerTok); ok('exemples : réservé à l\'admin', $st === 403);
+[$st, $d] = call('POST', '/admin/demo', ['action' => 'install'], $adminTok); ok('exemples installés', $st === 200 && $d['active'] === 14 && $d['state'] === 'installed', [$st, $d]);
+[$st, $feed] = call('GET', '/listings?limit=50'); $demos = array_values(array_filter($feed['items'], fn ($x) => $x['isDemo']));
+ok('exemples visibles, marqués, photo copiée sur le serveur', count($demos) === 14 && str_starts_with($demos[0]['photos'][0], '/media/'), $demos[0] ?? null);
+[$st, $j] = call('GET', '/listings?q=pagne'); ok('exemples trouvés par la recherche', count($j['items']) === 1 && $j['items'][0]['isDemo'] === true, $j);
+[$st, $j] = call('POST', '/orders', ['listingId' => $demos[0]['id']], $buyerTok, $idem()); ok('exemple non achetable par un utilisateur', $st === 403 && $j['error'] === 'demo_listing', [$st, $j]);
+[$st, $j] = call('POST', '/conversations', ['listingId' => $demos[0]['id']], $buyerTok); ok('pas de message sur un exemple', $st === 403 && $j['error'] === 'demo_listing', [$st, $j]);
+[$st, $do] = call('POST', '/orders', ['listingId' => $demos[0]['id']], $adminTok, $idem()); ok('l\'admin peut simuler un achat', $st === 201, [$st, $do]);
+[$st, $j] = call('POST', "/orders/{$do['id']}/pay-cash", null, $adminTok); [$st, $j] = call('POST', "/orders/{$do['id']}/confirm", null, $adminTok); ok('simulation menée au bout', $j['status'] === 'completed', $j);
+[$st, $j] = call('GET', '/users/search?q=Exemples', null, $buyerTok); ok('compte technique des exemples introuvable', $j['items'] === [], $j);
+// retrait automatique : seuil atteint → la tâche de fond les retire
+[$st, $j] = call('PATCH', '/admin/settings', ['demo.remove_after' => 1], $adminTok);
+exec('php ' . escapeshellarg("$priv/cron.php") . ' 2>&1', $cronOut, $cronCode); ok('tâche de fond exécutée', $cronCode === 0, $cronOut);
+[$st, $feed] = call('GET', '/listings?limit=50'); ok('exemples retirés automatiquement', count(array_filter($feed['items'], fn ($x) => $x['isDemo'])) === 0, count($feed['items']));
+[$st, $s] = call('GET', '/admin/system', null, $adminTok); ok('état : retirés', $s['demo']['state'] === 'removed' && $s['demo']['active'] === 0, $s['demo'] ?? null);
+exec('php ' . escapeshellarg("$priv/cron.php")); [$st, $feed] = call('GET', '/listings?limit=50'); ok('ils ne reviennent pas tout seuls', count(array_filter($feed['items'], fn ($x) => $x['isDemo'])) === 0);
+[$st, $j] = call('GET', "/orders/{$do['id']}", null, $adminTok); ok('historique de la simulation conservé', $j['status'] === 'completed', $j);
+foreach ($made as $f) @unlink($f); if ($made) @rmdir("$priv/demo/img");
+
 // ---------------------------------------------------------------- Divers
 [$st, $j] = call('GET', '/notifications', null, $sellerTok); ok('notifications', $st === 200 && $j['unread'] > 3, $j['unread'] ?? null);
 [$st, $j] = call('POST', '/notifications/read-all', null, $sellerTok); [$st, $j] = call('GET', '/notifications', null, $sellerTok); ok('tout lu', $j['unread'] === 0);
 [$st, $j] = call('POST', '/me/email', ['email' => 'ben2@example.com'], $buyerTok); ok('changement e-mail demandé', $st === 202, [$st, $j]);
 [$st, $j] = call('POST', '/me/email/verify', ['code' => lastCode('ben2@example.com')], $buyerTok); ok('e-mail changé', $j['email'] === 'ben2@example.com', $j);
 [$st, $j] = call('POST', "/admin/users/$cleoId", ['status' => 'suspended'], $adminTok); [$st, $j] = call('POST', '/auth/login', ['identifier' => 'cleo@example.com', 'password' => 'nouveau-secret-9']); ok('compte suspendu bloqué', $st === 403 && $j['error'] === 'account_suspended', $j);
-[$st, $j] = call('GET', '/admin/metrics', null, $adminTok); ok('tableau de bord', $j['totals']['usersTotal'] === 4 && count($j['days']['users']) === 14 && end($j['days']['users'])['count'] === 4, $j['totals'] ?? $j);
+[$st, $j] = call('GET', '/admin/metrics', null, $adminTok); ok('tableau de bord', $j['totals']['usersTotal'] === 5 && count($j['days']['users']) === 14 && end($j['days']['users'])['count'] === 5, $j['totals'] ?? $j);
 [$st, $j] = call('GET', '/admin/mail-log', null, $adminTok); ok('journal e-mails', count($j['items']) > 5, count($j['items'] ?? []));
 // verrouillage après 5 échecs
 db()->exec('DELETE FROM rate_limits');

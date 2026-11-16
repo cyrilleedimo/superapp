@@ -120,6 +120,8 @@ final class Settings
         'orders.pending_ttl_min' => ['int', 30, false],
         'orders.auto_release_days' => ['int', 0, false],
         'payout.min_xaf' => ['int', 500, false],
+        'demo.enabled' => ['bool', true, false],
+        'demo.remove_after' => ['int', 20, false],
     ];
 
     public function __construct(private Db $db, private string $key) {}
@@ -431,6 +433,7 @@ final class App
     private static function afterResponse(): void
     {
         if (function_exists('fastcgi_finish_request')) @fastcgi_finish_request();
+        elseif (function_exists('litespeed_finish_request')) @litespeed_finish_request();
         try { Jobs::maybeRun(); } catch (\Throwable $e) { error_log('Ovia jobs : ' . $e->getMessage()); }
     }
 

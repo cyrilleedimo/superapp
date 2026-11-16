@@ -45,6 +45,12 @@ Ensuite, supprime `verif.php`.
 Dans le tableau de bord Notch Pay, colle comme **adresse de webhook** celle affichée en haut de l'onglet Réglages
 (`https://app.itsscm.org/api/webhooks/payments`).
 
+## Annonces d'exemple
+Au premier lancement, 14 annonces d'exemple (photos libres de droits, licence CC0) s'installent toutes seules pour que
+l'accueil ne soit pas vide. Elles portent la mention « Exemple », seul un administrateur peut les commander (pour simuler),
+et elles sont **retirées automatiquement** dès que 20 vraies annonces ont été publiées (seuil modifiable dans Réglages,
+où un bouton permet aussi de les retirer ou de les remettre à la main).
+
 ## 7. Passer plus tard à une base MySQL
 Quand l'hébergeur te donne une base : Administration → Réglages → **Brancher MySQL**, saisis les accès.
 Le serveur teste la connexion, recopie toutes les données du fichier vers la base, vérifie le compte de lignes,

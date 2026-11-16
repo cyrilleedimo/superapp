@@ -75,8 +75,9 @@ final class Messaging
         App::route('POST', '/conversations', function (Req $r) use ($db) {
             $listingId = $r->body()->uuid('listingId');
             $uid = $r->uid();
-            $l = $db()->one('SELECT seller_id, status FROM listings WHERE id=?', [$listingId]);
+            $l = $db()->one('SELECT seller_id, status, is_demo FROM listings WHERE id=?', [$listingId]);
             if (!$l || $l['status'] === 'removed') throw AppError::notFound('listing_not_found');
+            if ((int) $l['is_demo'] && ($r->user['role'] ?? '') !== 'admin') throw AppError::forbidden('demo_listing');
             if ($l['seller_id'] === $uid) throw AppError::forbidden('own_listing');
             $id = $db()->tx(function (Db $db) use ($listingId, $uid, $l): string {
                 $c = $db->one('SELECT id FROM conversations WHERE listing_id=? AND buyer_id=?', [$listingId, $uid]);

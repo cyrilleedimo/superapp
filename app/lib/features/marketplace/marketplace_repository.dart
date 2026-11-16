@@ -8,7 +8,7 @@ class Listing {
   Listing({
     required this.id, required this.title, required this.description, required this.category,
     required this.condition, required this.priceXaf, required this.city, required this.photos,
-    required this.status, this.sellerName,
+    required this.status, this.sellerName, this.isDemo = false,
   });
 
   factory Listing.fromJson(Map<String, dynamic> j) => Listing(
@@ -22,12 +22,16 @@ class Listing {
         photos: ((j['photos'] as List?) ?? const []).cast<String>(),
         status: j['status'] as String,
         sellerName: (j['seller'] as Map?)?['displayName'] as String?,
+        isDemo: j['isDemo'] == true,
       );
 
   final String id, title, description, category, condition, city, status;
   final int priceXaf;
   final List<String> photos;
   final String? sellerName;
+
+  /// Annonce d'exemple du lancement : visible, mais pas réellement à vendre.
+  final bool isDemo;
 }
 
 class Order {

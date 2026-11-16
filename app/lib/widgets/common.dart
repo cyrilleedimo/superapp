@@ -78,11 +78,12 @@ class ProductVisual extends StatelessWidget {
 
 class ListingCard extends StatelessWidget {
   const ListingCard({super.key, required this.id, required this.title, required this.priceXaf,
-      required this.condition, this.photoUrl, required this.onTap});
+      required this.condition, this.photoUrl, required this.onTap, this.isDemo = false});
   final String id, title, condition;
   final int priceXaf;
   final String? photoUrl;
   final VoidCallback onTap;
+  final bool isDemo;
 
   @override
   Widget build(BuildContext context) {
@@ -95,7 +96,10 @@ class ListingCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(LumoRadius.card),
         child: ExcludeSemantics(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            ProductVisual(seed: id.hashCode, photoUrl: photoUrl),
+            Stack(children: [
+              ProductVisual(seed: id.hashCode, photoUrl: photoUrl),
+              if (isDemo) const Positioned(left: 8, top: 8, child: DemoTag()),
+            ]),
             const SizedBox(height: 6),
             Text(formatXaf(priceXaf), style: t.titleMedium?.copyWith(fontSize: 15)),
             const SizedBox(height: 2),
@@ -106,6 +110,17 @@ class ListingCard extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Étiquette des annonces d'exemple (elles ne sont pas réellement à vendre).
+class DemoTag extends StatelessWidget {
+  const DemoTag({super.key});
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(color: LumoColors.ink.withValues(alpha: 0.78), borderRadius: BorderRadius.circular(LumoRadius.pill)),
+        child: const Text('Exemple', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700)),
+      );
 }
 
 /// État d'erreur réutilisable : message + bouton pour réessayer.
