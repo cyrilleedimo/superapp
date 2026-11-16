@@ -240,9 +240,9 @@ foreach (['arrived', 'in_progress', 'completed'] as $s) { [$st, $j] = call('POST
 $im2 = imagecreatetruecolor(900, 600); imagefill($im2, 0, 0, imagecolorallocate($im2, 200, 120, 40)); @mkdir("$priv/demo/img", 0755, true);
 $made = []; foreach (json_decode(file_get_contents("$priv/demo/annonces.json"), true) as $it) { $f = "$priv/demo/img/{$it['key']}.img"; if (!is_file($f)) { imagejpeg($im2, $f); $made[] = $f; } }
 [$st, $d] = call('POST', '/admin/demo', ['action' => 'install'], $buyerTok); ok('exemples : réservé à l\'admin', $st === 403);
-[$st, $d] = call('POST', '/admin/demo', ['action' => 'install'], $adminTok); ok('exemples installés', $st === 200 && $d['active'] === 14 && $d['state'] === 'installed', [$st, $d]);
+[$st, $d] = call('POST', '/admin/demo', ['action' => 'install'], $adminTok); ok('exemples installés', $st === 200 && $d['active'] === 13 && $d['state'] === 'installed', [$st, $d]);
 [$st, $feed] = call('GET', '/listings?limit=50'); $demos = array_values(array_filter($feed['items'], fn ($x) => $x['isDemo']));
-ok('exemples visibles, marqués, photo copiée sur le serveur', count($demos) === 14 && str_starts_with($demos[0]['photos'][0], '/media/'), $demos[0] ?? null);
+ok('exemples visibles, marqués, photo copiée sur le serveur', count($demos) === 13 && str_starts_with($demos[0]['photos'][0], '/media/'), $demos[0] ?? null);
 [$st, $j] = call('GET', '/listings?q=pagne'); ok('exemples trouvés par la recherche', count($j['items']) === 1 && $j['items'][0]['isDemo'] === true, $j);
 [$st, $j] = call('POST', '/orders', ['listingId' => $demos[0]['id']], $buyerTok, $idem()); ok('exemple non achetable par un utilisateur', $st === 403 && $j['error'] === 'demo_listing', [$st, $j]);
 [$st, $j] = call('POST', '/conversations', ['listingId' => $demos[0]['id']], $buyerTok); ok('pas de message sur un exemple', $st === 403 && $j['error'] === 'demo_listing', [$st, $j]);

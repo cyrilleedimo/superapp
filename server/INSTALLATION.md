@@ -46,7 +46,7 @@ Dans le tableau de bord Notch Pay, colle comme **adresse de webhook** celle affi
 (`https://app.itsscm.org/api/webhooks/payments`).
 
 ## Annonces d'exemple
-Au premier lancement, 14 annonces d'exemple (photos libres de droits, licence CC0) s'installent toutes seules pour que
+Au premier lancement, 13 annonces d'exemple (photos libres de droits, licence CC0) s'installent toutes seules pour que
 l'accueil ne soit pas vide. Elles portent la mention « Exemple », seul un administrateur peut les commander (pour simuler),
 et elles sont **retirées automatiquement** dès que 20 vraies annonces ont été publiées (seuil modifiable dans Réglages,
 où un bouton permet aussi de les retirer ou de les remettre à la main).

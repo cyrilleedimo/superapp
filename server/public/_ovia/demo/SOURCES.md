@@ -5,7 +5,6 @@ Toutes viennent de Wikimedia Commons et sont publiées sous licence **CC0** (dom
 | Annonce | Page d'origine |
 |---|---|
 | Baskets blanches en toile | <https://commons.wikimedia.org/wiki/File:A_girl_wearing_white_shoes_and_skirt;_April_2016_(02).jpg> |
-| Smartphone noir, écran intact | <https://commons.wikimedia.org/wiki/File:White_work_table_with_notes,_smartphone_and_laptop_(Unsplash).jpg> |
 | Ordinateur portable fin, clavier noir | <https://commons.wikimedia.org/wiki/File:Iphone,_macbook_and_smartphone_on_a_table_(Unsplash).jpg> |
 | Robes en pagne, plusieurs modèles | <https://commons.wikimedia.org/wiki/File:Ghanaian_African_Print_Fashion,_Dresses.jpg> |
 | Sac à main en cuir travaillé, style vintage | <https://commons.wikimedia.org/wiki/File:Tooled_leather_handbag_by_N._Raddi,_late_1930s-early_1940s_02.jpg> |

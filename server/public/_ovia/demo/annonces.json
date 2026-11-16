@@ -12,18 +12,6 @@
   "license": "CC0"
  },
  {
-  "key": "smartphone",
-  "title": "Smartphone noir, écran intact",
-  "description": "Smartphone noir en bon état de marche. Écran sans fissure, coque propre. Vendu avec son chargeur.",
-  "category": "electronics",
-  "condition": "good",
-  "priceXaf": 65000,
-  "city": "Yaoundé",
-  "image": "https://thumb.wikimedia.org/wikipedia/commons/thumb/d/dc/White_work_table_with_notes%2C_smartphone_and_laptop_%28Unsplash%29.jpg/1280px-White_work_table_with_notes%2C_smartphone_and_laptop_%28Unsplash%29.jpg",
-  "source": "https://commons.wikimedia.org/wiki/File:White_work_table_with_notes,_smartphone_and_laptop_(Unsplash).jpg",
-  "license": "CC0"
- },
- {
   "key": "ordinateur",
   "title": "Ordinateur portable fin, clavier noir",
   "description": "Ordinateur portable léger, coque gris métal et clavier noir. Idéal pour les cours et le travail de bureau. Batterie qui tient bien.",
