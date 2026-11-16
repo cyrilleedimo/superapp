@@ -180,8 +180,12 @@ class _Actions extends ConsumerWidget {
         width: double.infinity,
         padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
         decoration: BoxDecoration(color: LumoColors.mist, borderRadius: BorderRadius.circular(14)),
-        child: Text(l.status == 'sold' ? 'Vendu' : 'Réservé par un acheteur', textAlign: TextAlign.center,
-            style: const TextStyle(color: LumoColors.slate, fontWeight: FontWeight.w600)),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Text(l.status == 'sold' ? 'Vendu' : 'Réservé par un acheteur', textAlign: TextAlign.center,
+              style: const TextStyle(color: LumoColors.slate, fontWeight: FontWeight.w600)),
+          if (signedIn && l.status == 'reserved')
+            TextButton(onPressed: () => context.push('/orders'), child: const Text('C\'est toi ? Voir mes commandes')),
+        ]),
       );
     }
     return Row(children: [

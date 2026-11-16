@@ -1,4 +1,4 @@
-# Super-app — Architecture (Phase 1)
+# Ovia — Architecture
 
 > Nom de l'application : **Ovia** (logo fourni par Edimo Paul Cyrille, intégré dans `app/assets/`).
 > Les valeurs entre crochets sont des **décisions business non prises** : rien n'a été inventé.
@@ -13,96 +13,73 @@
 | Utilisateurs | Particuliers (acheteurs/vendeurs), commerçants, chauffeurs, administrateurs | — |
 | Langue | Français d'abord, anglais en Phase 2 (Cameroun bilingue) | — |
 | Réseau | 3G/4G instable → idempotence, reprises, images légères | — |
-| Paiements | Page de paiement **hébergée** par un agrégateur (Mobile Money + carte). Adaptateur Notch Pay écrit et vérifié sur sa doc ; architecture prête pour d'autres | [PAYMENT PROVIDERS] |
-| Frais acheteur | Paramètre `BUYER_FEE_BPS` **sans valeur par défaut** | [BUYER FEE] |
-| SMS (OTP) | Interface prête, fournisseur à choisir ; la prod refuse de démarrer sans | [SMS PROVIDER] |
+| Paiements | Notch Pay (Orange Money, MTN MoMo), testé en mode essai ; paiement à la remise en complément | Passage en mode réel |
+| Frais acheteur | 5 % par défaut, modifiable dans Administration → Réglages | [BUYER FEE] |
+| Codes de vérification | Par e-mail (obligatoire à l'inscription). Pas de SMS : aucun fournisseur SMS n'est requis | — |
 | Données perso | Loi camerounaise n° 2024/017 du 23/12/2024 : autorisation préalable de l'Autorité de protection des données, registre des traitements, autorisation pour transfert hors du pays | Avis juridique local |
 | Paiement / monnaie électronique | Réglementation CEMAC/COBAC/BEAC : la plateforme **ne détient pas** l'argent elle-même — c'est le prestataire agréé qui l'encaisse ; le séquestre est un **état comptable** chez nous | Avis juridique : statut exact du séquestre |
 | Entité légale | — | [LEGAL ENTITY] |
 
-## 2. Comparaison des stacks et décision
+## 2. Décisions techniques
 
-| Critère | **Flutter** (retenu) | React Native | Natif (Kotlin + WinUI/.NET) |
-|---|---|---|---|
-| Windows + Android, 1 code | Oui, officiel et stable | Android oui ; Windows via `react-native-windows` (Microsoft), écosystème plus mince | Non : 2 codes séparés |
-| Fidélité au design sur mesure | Excellente (rendu propre, pixel-perfect) | Bonne, dépend des composants natifs | Excellente mais ×2 |
-| Performances sur Android d'entrée de gamme | Bonnes (AOT) | Bonnes (nouvelle archi) | Les meilleures |
-| Coût / vitesse pour une petite équipe | **Le plus bas** | Moyen | Le plus élevé |
-| Stockage sécurisé | `flutter_secure_storage` (Keystore / DPAPI) | Équivalents | Natif |
+**Application : Flutter**, une seule base de code pour Android, iOS, Windows et le web (le web sert aussi d'application installable sur iPhone tant que l'App Store n'est pas ouvert).
 
-**Décision : Flutter** pour l'app (une base de code, rendu identique Windows/Android, design européen sur mesure).
-**Backend : Node.js 22 + TypeScript + Fastify + PostgreSQL 16**, monolithe modulaire. Pourquoi :
-- Tu maîtrises déjà TypeScript/Node.
-- PostgreSQL garantit les transactions ACID indispensables à l'argent, les contraintes et le plein texte français.
-- Les modules se découpent en services le jour où le trafic l'exige. Commencer en microservices serait une erreur coûteuse.
+**Serveur : PHP 8.1+ sans dépendance**, dans `server/`. Pourquoi ce choix, après un premier serveur Node.js/PostgreSQL hébergé sur un PC :
+- l'hébergement disponible est un mutualisé DirectAdmin : PHP y tourne en permanence, sans processus à surveiller ni tunnel ;
+- l'adresse ne change plus (`https://app.itsscm.org`) et le serveur reste en ligne PC éteint ;
+- aucune base n'est exigée au départ : les données vivent dans un fichier privé (SQLite), puis basculent vers MySQL sur simple saisie des accès.
 
 ## 3. Architecture
 
 ```
- ┌──────────────── Clients ────────────────┐
- │  App Windows (Flutter)   App Android 12+ │
- └──────────────┬───────────────────────────┘
-                │ HTTPS (TLS 1.2+), JWT court + refresh rotatif
-        ┌───────▼────────┐
-        │ Répartiteur /  │  WAF, rate limit réseau, TLS
-        │ reverse proxy  │
-        └───────┬────────┘
-        ┌───────▼──────────────────────────────────────────┐
-        │ API Fastify (monolithe modulaire, sans état)      │
-        │  auth │ marketplace │ orders+escrow │ payments    │
-        │  ledger │ audit │ (Ph.2) rides │ food │ shops     │
-        └──┬───────────────┬───────────────────┬───────────┘
-           │               │                   │ HTTPS sortant
-   ┌───────▼──────┐  ┌─────▼──────┐   ┌────────▼─────────────┐
-   │ PostgreSQL 16│  │ (Ph.2)     │   │ Prestataire paiement │
-   │ ACID, ledger │  │ Redis,     │   │ (page hébergée,      │
-   │ append-only  │  │ stockage   │   │ Mobile Money, carte) │
-   └──────────────┘  │ objets     │   └────────┬─────────────┘
-                     └────────────┘            │ webhook signé HMAC
-                                               ▼
-                                   /webhooks/payments → resync serveur
+ Android · iOS · Windows · Web (Flutter)
+        │ HTTPS, JWT court + jeton de rafraîchissement rotatif
+        ▼
+ https://app.itsscm.org
+   ├── index.html …            application web (même origine que l'API)
+   ├── api/index.php           point d'entrée unique de l'API
+   └── _ovia/  (privé)         src/ · config.php · data/ (fichier de données, photos, journal)
+        │
+        ├── Stockage : fichier SQLite  ──bascule automatique──▶  MySQL
+        ├── Notch Pay (Orange Money, MTN MoMo) : clé publique + webhook signé
+        ├── E-mail : SMTP ou mail() de l'hébergeur
+        └── Gemini : assistant « Décrire avec l'IA »
 ```
 
-### Flux de paiement séquestre (le cœur de la confiance)
+### Modules du serveur (`server/public/_ovia/src`)
 
-1. `POST /orders` (avec `Idempotency-Key`) : l'annonce est verrouillée (`SELECT … FOR UPDATE`) puis réservée. Un index unique partiel interdit la double vente.
-2. `POST /orders/:id/pay` : le paiement est créé chez le prestataire, l'app ouvre la page hébergée. **Aucune donnée de carte ni code Mobile Money ne transite par nous.**
-3. Le webhook arrive, et on le traite dans cet ordre :
-   - signature HMAC vérifiée sur le corps **brut** ;
-   - anti-rejeu par empreinte SHA-256 du corps ;
-   - **re-vérification serveur à serveur** du statut ;
-   - contrôle **montant + devise** : en cas d'écart → `mismatch`, rien n'est crédité.
-4. Une fois le paiement confirmé, l'écriture comptable est `psp:clearing +total / escrow −total` et la commande passe en `paid`.
-5. L'acheteur confirme la réception. L'écriture est alors `escrow +total / wallet:vendeur −prix / platform:revenue −frais`.
-6. Un litige passe la commande en `disputed`. Un admin peut ensuite rembourser : `escrow +total / psp:clearing −total`.
+| Fichier | Rôle |
+|---|---|
+| `Core.php` | Erreurs métier, validation des entrées, chiffrement, appels HTTP sortants |
+| `Db.php` | Schéma unique pour SQLite et MySQL, transactions, bascule fichier → MySQL |
+| `App.php` | Configuration auto-générée, routeur, jetons, limitation de débit, réglages chiffrés |
+| `Auth.php` | Inscription par e-mail + code, connexion, mot de passe oublié, sessions |
+| `Market.php` | Annonces, photos ré-encodées, assistant IA |
+| `Orders.php` | Grand livre, Notch Pay, commandes avec séquestre ou paiement à la remise |
+| `Messaging.php` | Discussions d'annonce avec offres, discussions privées, groupes |
+| `Services.php` | Notifications, retraits, covoiturage, VTC, restaurants et boutiques |
+| `Admin.php` | Tableau de bord, utilisateurs, réglages, bascule MySQL, tâches de fond |
 
-### Modèle de données (Phase 1)
+### Les trois façons de payer une commande
 
-| Table | Rôle | Garde-fous |
-|---|---|---|
-| `users` | Identité, rôle, statut, verrouillage | Téléphone E.164 unique (CHECK), argon2id |
-| `otp_codes` | Codes SMS | Hash seul, 10 min, 5 essais max |
-| `refresh_tokens` | Sessions | Hash seul, rotation, révocation de famille si réutilisation |
-| `listings` | Annonces | Plein texte français (GIN), prix > 0 |
-| `orders` | Commandes | `total = prix + frais` (CHECK), 1 commande vivante par annonce, idempotence |
-| `payments` | Tentatives de paiement | Références uniques, statut `mismatch` |
-| `webhook_events` | Anti-rejeu | Unicité (prestataire, SHA-256 du corps) |
-| `ledger_accounts` / `ledger_entries` | Grand livre en partie double | **Ajout seul** (trigger) + **équilibre vérifié au COMMIT** (trigger différé) |
-| `audit_log` | Traçabilité | Connexions, paiements, litiges, remboursements |
+1. **Mobile Money direct** : l'acheteur saisit son numéro, reçoit la demande sur son téléphone et valide avec son code secret (jamais saisi dans l'application). L'argent est mis en séquestre.
+2. **Page sécurisée du prestataire** : même résultat, via la page hébergée de Notch Pay.
+3. **À la remise** : l'acheteur paie le vendeur de la main à la main. Sans frais, sans séquestre, donc sans protection acheteur — c'est dit clairement à l'écran.
 
-### API (Phase 1)
+### Flux de paiement en ligne (le cœur de la confiance)
 
-| Méthode | Route | Auth |
-|---|---|---|
-| POST | `/auth/register`, `/auth/verify-phone`, `/auth/login`, `/auth/refresh`, `/auth/logout`, `/auth/resend-otp` | publique, 10 req/min |
-| GET | `/me`, `/me/wallet` | utilisateur |
-| GET | `/listings` (q, category, city, minPrice, maxPrice, cursor), `/listings/:id` | publique |
-| POST / PATCH / DELETE | `/listings`, `/listings/:id` | propriétaire |
-| POST | `/orders`, `/orders/:id/pay`, `/orders/:id/confirm`, `/orders/:id/cancel`, `/orders/:id/dispute` | acheteur (ou vendeur pour cancel) |
-| GET | `/orders`, `/orders/:id` | acheteur ou vendeur |
-| POST | `/payments/:reference/refresh` | acheteur |
-| POST | `/webhooks/payments` | signature HMAC |
-| POST | `/admin/orders/:id/refund` | admin |
+1. `POST /orders` (avec `Idempotency-Key`) : l'annonce est verrouillée puis réservée dans la même transaction.
+2. `POST /orders/:id/pay-mobile` ou `/pay` : le paiement est créé chez le prestataire.
+3. Confirmation par webhook (signature HMAC sur le corps brut, anti-rejeu) **ou** par interrogation ; dans les deux cas le serveur **redemande l'état réel au prestataire** et compare montant et devise.
+4. Écriture comptable `psp:clearing +total / escrow −total`, commande `paid`.
+5. L'acheteur confirme la réception : `escrow +total / wallet:vendeur −prix / platform:revenue −frais`.
+6. Litige → `disputed` ; un admin rembourse (`escrow +total / psp:clearing −total`) ou paie le vendeur.
+
+### Comptes
+
+- E-mail **obligatoire** et vérifié par code ; téléphone facultatif (utile pour Mobile Money et les livraisons).
+- Connexion par e-mail ou téléphone. Mot de passe oublié : code par e-mail.
+- L'accueil, la recherche, les fiches et les commerces sont visibles **sans compte** ; se connecter n'est demandé qu'au moment d'agir.
 
 ## 4. Design system « Clarté européenne »
 
@@ -126,4 +103,4 @@ Inspirations, sans copie :
 - **BlaBlaCar** : frise horaire des trajets.
 - **Kayak** : prix par date, tri Meilleur / Moins cher / Plus rapide.
 
-Mise en page adaptative : barre basse sur Android, rail latéral à partir de 1024 px (Windows).
+Mise en page adaptative : barre basse sur téléphone, rail latéral à partir de 1024 px (Windows, web sur ordinateur).

@@ -20,6 +20,7 @@ final class Mailer
         $smtpUser = App::$settings->str('smtp.user');
         if (filter_var($smtpUser, FILTER_VALIDATE_EMAIL)) return $smtpUser;
         $host = strtolower((string) parse_url(App::publicUrl(), PHP_URL_HOST));
+        if ($host === '' || filter_var($host, FILTER_VALIDATE_IP)) return 'no-reply@localhost.localdomain';
         $labels = explode('.', $host);
         if (count($labels) > 2) array_shift($labels); // app.exemple.org → exemple.org (là où existent SPF/DKIM)
         return 'no-reply@' . (count($labels) >= 2 ? implode('.', $labels) : 'localhost.localdomain');

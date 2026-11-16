@@ -151,7 +151,7 @@ const _guides = [
   ], cta: 'Ouvrir mes commerces', route: '/merchant'),
   _Guide(Icons.account_balance_wallet_outlined, 'Le porte-monnaie', [
     'Il reçoit l\'argent de tes ventes, une fois la réception confirmée par l\'acheteur.',
-    'Chaque mouvement est inscrit dans un registre comptable qui ne peut être ni modifié ni effacé.',
+    'Chaque mouvement est inscrit dans un registre comptable : une écriture n\'est jamais modifiée ni effacée, une erreur se corrige par une nouvelle écriture.',
     'Pour retirer vers Orange Money ou MTN MoMo, ton mot de passe est redemandé.',
     'Pour payer une commande, tu n\'as pas besoin de l\'alimenter : tu paies directement avec Mobile Money.',
   ]),

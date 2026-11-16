@@ -245,10 +245,15 @@ class ProfileScreen extends ConsumerWidget {
                       style: t.headlineMedium?.copyWith(color: Colors.white)),
                   const SizedBox(height: 12),
                   FilledButton(
-                    style: FilledButton.styleFrom(backgroundColor: LumoColors.lime, foregroundColor: LumoColors.ink),
+                    style: FilledButton.styleFrom(
+                        backgroundColor: LumoColors.lime, foregroundColor: LumoColors.ink,
+                        disabledBackgroundColor: const Color(0xFF2A2F38), disabledForegroundColor: const Color(0xFF9AA1AD)),
                     onPressed: available > 0 ? () => _payout(context, ref, available) : null,
-                    child: const Text('Retirer vers Mobile Money'),
+                    child: Text(available > 0 ? 'Retirer vers Mobile Money' : 'Rien à retirer pour l\'instant'),
                   ),
+                  const SizedBox(height: 8),
+                  const Text('Il reçoit l\'argent de tes ventes, une fois la réception confirmée.',
+                      style: TextStyle(color: Color(0xFFC9CDD6), fontSize: 12)),
                 ]),
               ),
               const SizedBox(height: 16),
@@ -266,7 +271,13 @@ class ProfileScreen extends ConsumerWidget {
               // utilisateurs n'ont ni besoin ni intérêt à voir/changer l'adresse du serveur.
               if (isAdmin) const _ServerAddressTile(),
               const SizedBox(height: 16),
-              OutlinedButton(onPressed: () => ref.read(sessionProvider.notifier).logout(), child: const Text('Se déconnecter')),
+              OutlinedButton(
+                onPressed: () async {
+                  await ref.read(sessionProvider.notifier).logout();
+                  if (context.mounted) context.go('/'); // retour à l'accueil, visible sans compte
+                },
+                child: const Text('Se déconnecter'),
+              ),
             ]),
           ),
         ),

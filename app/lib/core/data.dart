@@ -3,8 +3,11 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'providers.dart';
 
-final jsonProvider = FutureProvider.autoDispose.family<Map<String, dynamic>, String>(
-    (ref, path) => ref.watch(apiClientProvider).get(path));
+final jsonProvider = FutureProvider.autoDispose.family<Map<String, dynamic>, String>((ref, path) {
+  // Rechargé à chaque connexion / déconnexion : jamais de données d'un compte précédent à l'écran.
+  ref.watch(sessionProvider);
+  return ref.watch(apiClientProvider).get(path);
+});
 
 /// Liste `items` d'une réponse paginée.
 List<Map<String, dynamic>> itemsOf(Map<String, dynamic> json) =>

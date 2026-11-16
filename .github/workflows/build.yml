@@ -73,7 +73,8 @@ jobs:
         run: flutter analyze --no-fatal-infos --no-fatal-warnings
       - run: flutter test
       - name: Compiler l'APK
-        run: flutter build apk --release --build-name "$APP_VERSION" --build-number "${{ github.run_number }}" --dart-define=API_URL="${{ vars.API_URL }}"
+        # arm + arm64 seulement (tous les téléphones) : APK nettement plus léger à télécharger.
+        run: flutter build apk --release --target-platform android-arm,android-arm64 --build-name "$APP_VERSION" --build-number "${{ github.run_number }}" --dart-define=API_URL="${{ vars.API_URL }}"
       - run: cp build/app/outputs/flutter-apk/app-release.apk "build/Ovia-$APP_VERSION.apk"
       - uses: actions/upload-artifact@v4
         with:
@@ -137,7 +138,8 @@ jobs:
           python3 tool/patch_platforms.py "Ovia"
           flutter pub get
           dart run flutter_launcher_icons -f tool/icons_web.yaml
-          flutter build web --release --build-name "$APP_VERSION" --build-number "${{ github.run_number }}"
+          # --no-web-resources-cdn : le moteur d'affichage est servi par notre hébergeur, pas par un CDN tiers.
+          flutter build web --release --no-web-resources-cdn --build-name "$APP_VERSION" --build-number "${{ github.run_number }}"
       - name: Assembler le paquet serveur
         run: |
           mkdir -p paquet dist
