@@ -1,4 +1,4 @@
-// Point d'entrée de l'application (Windows + Android 12+).
+// Point d'entrée de l'application (Android, iOS, Windows, web).
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/config.dart';
@@ -7,7 +7,7 @@ import 'core/theme/app_theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await AppConfig.load(); // adresse du serveur choisie par l'utilisateur, s'il y en a une
+  await AppConfig.load(); // adresse du serveur + premier lancement
   runApp(const ProviderScope(child: SuperApp()));
 }
 

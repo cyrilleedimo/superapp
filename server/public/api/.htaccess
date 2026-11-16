@@ -1,0 +1,13 @@
+# Toutes les adresses /api/... arrivent sur index.php (point d'entrée unique).
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  # Certains hébergements mutualisés retirent l'en-tête Authorization : on le transmet à PHP.
+  RewriteCond %{HTTP:Authorization} .
+  RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+  RewriteRule ^ index.php [QSA,L]
+</IfModule>
+<IfModule mod_headers.c>
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set Referrer-Policy "no-referrer"
+</IfModule>
+Options -Indexes

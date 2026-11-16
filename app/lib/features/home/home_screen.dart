@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/api/api_client.dart';
+import '../../core/data.dart';
+import '../../core/providers.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/update_checker.dart';
 import '../../widgets/common.dart';
@@ -37,13 +39,27 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   void initState() {
     super.initState();
     // Une seule fois par ouverture de l'app, une fois l'écran réellement affiché.
-    WidgetsBinding.instance.addPostFrameCallback((_) => maybeCheckForUpdate(context));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      maybeCheckForUpdate(context);
+      _askForEmailIfMissing();
+    });
+  }
+
+  // Comptes créés avant l'arrivée de l'e-mail obligatoire : on propose de l'ajouter (une fois par ouverture).
+  Future<void> _askForEmailIfMissing() async {
+    if (ref.read(sessionProvider) != SessionState.signedIn) return;
+    try {
+      final me = await ref.read(jsonProvider('/me').future);
+      if (me['needsEmail'] == true && mounted) context.push('/add-email');
+    } catch (_) {/* hors ligne : on redemandera plus tard */}
   }
 
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context).textTheme;
     final feed = ref.watch(feedProvider);
+    final signedIn = ref.watch(signedInProvider);
+    final unread = ref.watch(badgesProvider).notifications;
     final wide = MediaQuery.sizeOf(context).width >= kDesktopBreakpoint;
     final columns = wide ? 5 : 2;
 
@@ -59,11 +75,29 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   const LumoLogo(),
                   const Spacer(),
                   IconButton(
-                    tooltip: 'Notifications',
+                    tooltip: 'Comment ça marche',
                     style: IconButton.styleFrom(backgroundColor: LumoColors.mist, minimumSize: const Size(44, 44)),
-                    onPressed: () => context.push('/notifications'),
-                    icon: const Icon(Icons.notifications_none_rounded),
+                    onPressed: () => context.push('/help'),
+                    icon: const Icon(Icons.help_outline_rounded),
                   ),
+                  const SizedBox(width: 8),
+                  if (signedIn)
+                    IconButton(
+                      tooltip: unread > 0 ? 'Notifications ($unread non lues)' : 'Notifications',
+                      style: IconButton.styleFrom(backgroundColor: LumoColors.mist, minimumSize: const Size(44, 44)),
+                      onPressed: () => context.push('/notifications'),
+                      icon: Badge(
+                        isLabelVisible: unread > 0,
+                        label: Text(unread > 99 ? '99+' : '$unread'),
+                        child: const Icon(Icons.notifications_none_rounded),
+                      ),
+                    )
+                  else
+                    FilledButton(
+                      style: FilledButton.styleFrom(minimumSize: const Size(0, 44), padding: const EdgeInsets.symmetric(horizontal: 18)),
+                      onPressed: () => context.push('/login'),
+                      child: const Text('Se connecter'),
+                    ),
                 ]),
                 const SizedBox(height: 20),
                 Text('Qu\'est-ce qu\'on fait\naujourd\'hui ?', style: t.headlineMedium),

@@ -3,8 +3,8 @@
 // Android exigent tous deux une confirmation de l'utilisateur pour installer un exécutable
 // ou un APK venu d'en dehors du Store — c'est une règle du système, pas une limite d'Ovia.
 import 'dart:convert';
-import 'dart:io';
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -12,6 +12,14 @@ import 'package:url_launcher/url_launcher.dart';
 const _repo = 'cyrilleedimo/superapp';
 
 Future<void> maybeCheckForUpdate(BuildContext context) async {
+  // Web : toujours à jour. iPhone : les mises à jour passent par l'App Store.
+  if (kIsWeb) return;
+  final wantSuffix = switch (defaultTargetPlatform) {
+    TargetPlatform.windows => '.exe',
+    TargetPlatform.android => '.apk',
+    _ => null,
+  };
+  if (wantSuffix == null) return;
   try {
     final info = await PackageInfo.fromPlatform();
     final current = info.version; // ex. "1.0.11" (donné par la CI à la compilation)
@@ -27,7 +35,6 @@ Future<void> maybeCheckForUpdate(BuildContext context) async {
     if (latest.isEmpty || latest == current) return; // à jour, ou réponse inattendue
 
     final assets = (json['assets'] as List? ?? const []).cast<Map<String, dynamic>>();
-    final wantSuffix = Platform.isWindows ? '.exe' : '.apk';
     final asset = assets.cast<Map<String, dynamic>?>().firstWhere(
           (a) => (a?['name'] as String? ?? '').endsWith(wantSuffix),
           orElse: () => null,

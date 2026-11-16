@@ -12,10 +12,27 @@ class ApiException implements Exception {
 
   /// Message prêt à afficher, en français, sans jamais blâmer l'utilisateur.
   String get userMessage => switch (code) {
-        'invalid_credentials' => 'Numéro ou mot de passe incorrect.',
+        'invalid_credentials' => 'Identifiant ou mot de passe incorrect.',
+        'missing_token' || 'invalid_token' || 'unauthorized' => 'Connecte-toi pour continuer.',
+        'email_not_verified' => 'Ton e-mail n\'est pas encore vérifié. On vient de t\'envoyer un code.',
+        'account_suspended' => 'Ce compte est suspendu. Contacte le support.',
+        'phone_exists' => 'Ce numéro est déjà utilisé par un autre compte.',
+        'weak_password' => 'Choisis un mot de passe d\'au moins 8 caractères.',
+        'code_too_soon' => 'Un code vient déjà d\'être envoyé. Patiente une minute.',
+        'password_required' => 'Mot de passe incorrect.',
+        'payments_not_configured' => 'Le paiement en ligne n\'est pas encore activé. Choisis « Payer à la remise ».',
+        'cash_not_enabled' => 'Le paiement à la remise n\'est pas proposé.',
+        'order_not_payable' => 'Cette commande n\'est plus à payer.',
+        'order_not_cancellable' => 'Cette commande ne peut plus être annulée.',
+        'user_not_found' => 'Personne introuvable.',
+        'group_full' => 'Ce groupe est complet (50 membres).',
+        'wrong_key_type' => 'Notch Pay attend ici la clé PUBLIQUE (pk…), pas la clé secrète.',
+        'database_unreachable' => 'Connexion à la base impossible. Vérifie le nom, l\'utilisateur et le mot de passe.',
+        'cannot_edit_yourself' => 'Tu ne peux pas modifier ton propre compte ici.',
+        'server_not_ready' || 'storage_unavailable' || 'database_unavailable' => 'Le serveur n\'est pas prêt. Réessaie dans un instant.',
         'account_locked' => 'Trop de tentatives. Réessaie dans 15 minutes.',
         'invalid_code' => 'Ce code ne fonctionne pas. Demande-en un nouveau.',
-        'account_exists' => 'Un compte existe déjà avec ce numéro. Connecte-toi.',
+        'account_exists' => 'Un compte existe déjà avec cet e-mail. Connecte-toi.',
         'listing_unavailable' => 'Cet article vient d\'être réservé par quelqu\'un d\'autre.',
         'payment_provider_unavailable' => 'Le service de paiement ne répond pas. Réessaie dans un instant.',
         'rate_limited' => 'Beaucoup de demandes d\'un coup. Patiente quelques secondes.',
@@ -44,7 +61,7 @@ class ApiException implements Exception {
         'order_not_confirmable' => 'Cette commande ne peut pas encore être confirmée.',
         'own_listing' || 'cannot_buy_own_listing' => 'C\'est ta propre annonce.',
         'validation_failed' => 'Vérifie les informations saisies.',
-        'server_not_configured' => 'Adresse du serveur non configurée. Touche « Serveur » en bas de l\'écran de connexion.',
+        'server_not_configured' => 'Adresse du serveur non configurée.',
         'network' => 'Connexion impossible. Vérifie ton réseau puis réessaie.',
         _ => 'Une erreur est survenue. Réessaie.',
       };
@@ -61,9 +78,6 @@ class ApiClient {
           connectTimeout: const Duration(seconds: 15),
           receiveTimeout: const Duration(seconds: 20),
           contentType: 'application/json',
-          // Évite la page d'avertissement du plan gratuit ngrok (sinon elle remplacerait
-          // la vraie réponse de l'API pour tout client qui n'est pas un navigateur).
-          headers: {'ngrok-skip-browser-warning': 'true'},
         )) {
     dio.interceptors.add(QueuedInterceptorsWrapper(
       onRequest: (options, handler) async {
@@ -79,6 +93,8 @@ class ApiClient {
         final req = err.requestOptions;
         final isAuthCall = req.path.startsWith('/auth/');
         if (err.response?.statusCode == 401 && !isAuthCall && req.extra['retried'] != true) {
+          // Un visiteur sans compte qui touche une action réservée n'a pas de session à fermer.
+          final hadSession = await _tokens.refresh() != null;
           if (await _tryRefresh()) {
             req.extra['retried'] = true;
             req.headers['Authorization'] = 'Bearer ${await _tokens.access()}';
@@ -88,7 +104,7 @@ class ApiClient {
               return handler.next(e);
             }
           }
-          _onSessionExpired?.call();
+          if (hadSession) _onSessionExpired?.call();
         }
         handler.next(err);
       },
@@ -104,10 +120,7 @@ class ApiClient {
     if (rt == null) return false;
     try {
       // Dio séparé : pas d'intercepteur, donc pas de boucle de renouvellement.
-      final r = await Dio(BaseOptions(
-        baseUrl: AppConfig.apiUrl,
-        headers: {'ngrok-skip-browser-warning': 'true'},
-      )).post<Map<String, dynamic>>('/auth/refresh', data: {'refreshToken': rt});
+      final r = await Dio(BaseOptions(baseUrl: AppConfig.apiUrl, contentType: 'application/json')).post<Map<String, dynamic>>('/auth/refresh', data: {'refreshToken': rt});
       await _tokens.save(r.data!['accessToken'] as String, r.data!['refreshToken'] as String);
       return true;
     } catch (_) {
@@ -137,6 +150,8 @@ class ApiClient {
 
   Future<Map<String, dynamic>> patch(String path, {Object? body}) =>
       _wrap(() => dio.patch<Map<String, dynamic>>(path, data: body ?? const {}));
+
+  Future<Map<String, dynamic>> delete(String path) => _wrap(() => dio.delete<Map<String, dynamic>>(path));
 
   /// Envoie une image brute (le serveur la vérifie et la ré-encode). Renvoie {id, url}.
   Future<Map<String, dynamic>> uploadImage(List<int> bytes, String mime) => _wrap(() => dio.post<Map<String, dynamic>>(

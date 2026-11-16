@@ -1,57 +1,98 @@
-// Adresse du serveur (API). Ordre de priorité :
-//   1. adresse saisie dans l'app (écran de connexion → « Serveur ») ;
-//   2. --dart-define=API_URL=https://api.[VOTRE-DOMAINE] à la compilation ;
-//   3. en développement : localhost (Windows) / 10.0.2.2 (émulateur Android).
+// Adresse du serveur (API). L'application est livrée avec une adresse fixe ; ordre de priorité :
+//   1. adresse saisie par un administrateur (Profil → Adresse du serveur) ;
+//   2. sur le web : le site qui sert l'application (même domaine, dossier /api) ;
+//   3. adresse publiée dans le fichier server.json du dépôt (permet de déménager le
+//      serveur plus tard sans obliger tout le monde à réinstaller l'application) ;
+//   4. adresse fixée à la compilation (--dart-define=API_URL=...), sinon kDefaultApiUrl.
 // En version finale (release), seule une adresse https est acceptée.
-import 'dart:io' show Platform;
+import 'dart:convert';
+import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+
+/// Sous-domaine de l'hébergeur où le serveur Ovia est installé.
+const kDefaultApiUrl = 'https://app.itsscm.org/api';
+const _remoteConfigUrl = 'https://raw.githubusercontent.com/cyrilleedimo/superapp/main/server.json';
 
 class AppConfig {
   static const _fromEnv = String.fromEnvironment('API_URL');
-  static const isRelease = bool.fromEnvironment('dart.vm.product');
+  static const isRelease = kReleaseMode;
   static const _storage = FlutterSecureStorage(aOptions: AndroidOptions(encryptedSharedPreferences: true));
   static String? _override;
+  static String? _remote;
 
-  /// Charge l'adresse saisie par l'utilisateur (à appeler au démarrage).
+  /// Faux tant que la personne n'a pas vu l'écran de bienvenue.
+  static bool onboarded = true;
+
+  static Future<String?> _read(String key) async {
+    try { return await _storage.read(key: key); } catch (_) { return null; }
+  }
+
+  /// Charge les réglages locaux (à appeler au démarrage).
   static Future<void> load() async {
-    try { _override = await _storage.read(key: 'api_url'); } catch (_) { _override = null; }
+    _override = await _read('api_url');
+    _remote = await _read('api_url_remote');
+    onboarded = (await _read('onboarded')) == '1';
+    if (!kIsWeb) _refreshRemote(); // en arrière-plan : ne retarde jamais l'ouverture
+  }
+
+  static Future<void> markOnboarded() async {
+    onboarded = true;
+    try { await _storage.write(key: 'onboarded', value: '1'); } catch (_) {}
+  }
+
+  static bool _valid(String? u) => u != null && u.startsWith('https://') && (Uri.tryParse(u)?.hasAuthority ?? false);
+
+  static Future<void> _refreshRemote() async {
+    try {
+      final dio = Dio(BaseOptions(connectTimeout: const Duration(seconds: 5), receiveTimeout: const Duration(seconds: 5)));
+      final res = await dio.get<String>(_remoteConfigUrl, options: Options(responseType: ResponseType.plain));
+      final url = ((jsonDecode(res.data ?? '{}') as Map)['apiUrl'] as String?)?.replaceAll(RegExp(r'/+$'), '');
+      if (_valid(url) && url != _remote) {
+        _remote = url;
+        await _storage.write(key: 'api_url_remote', value: url);
+      }
+    } catch (_) {/* pas de réseau : on garde la dernière adresse connue */}
   }
 
   static String get apiUrl {
     if (_override != null && _override!.isNotEmpty) return _override!;
+    if (kIsWeb && _fromEnv.isEmpty) return '${Uri.base.origin}/api';
+    if (_valid(_remote)) return _remote!;
     if (_fromEnv.isNotEmpty) return _fromEnv;
-    if (isRelease) return '';
-    return Platform.isAndroid ? 'http://10.0.2.2:8080' : 'http://localhost:8080';
+    if (isRelease) return kDefaultApiUrl;
+    return defaultTargetPlatform == TargetPlatform.android ? 'http://10.0.2.2:8080/api' : 'http://localhost:8080/api';
   }
 
-  /// L'adresse est-elle utilisable ? (https obligatoire en release)
-  static bool get isConfigured => apiUrl.isNotEmpty && (!isRelease || apiUrl.startsWith('https://'));
+  /// L'adresse est-elle utilisable ? (https obligatoire en release, sauf site web servi en local)
+  static bool get isConfigured => apiUrl.isNotEmpty && (!isRelease || apiUrl.startsWith('https://') || kIsWeb);
 
-  /// Enregistre une nouvelle adresse. Renvoie un message d'erreur, ou null si OK.
+  /// Enregistre une adresse choisie par l'administrateur ; vide = revenir à l'adresse normale.
   static Future<String?> setServer(String url) async {
     final u = url.trim().replaceAll(RegExp(r'/+$'), '');
+    if (u.isEmpty || u == 'https:') {
+      _override = null;
+      try { await _storage.delete(key: 'api_url'); } catch (_) {}
+      return null;
+    }
     final parsed = Uri.tryParse(u);
     if (parsed == null || !parsed.hasAuthority) return 'Adresse invalide.';
     if (isRelease && parsed.scheme != 'https') return 'L\'adresse doit commencer par https://';
-    await _storage.write(key: 'api_url', value: u);
+    try { await _storage.write(key: 'api_url', value: u); } catch (_) {}
     _override = u;
     return null;
   }
 
-  /// À passer à tout Image.network affichant une photo du serveur : évite la page
-  /// d'avertissement du plan gratuit ngrok (sinon elle remplacerait l'image).
-  static const mediaHeaders = {'ngrok-skip-browser-warning': 'true'};
+  /// En-têtes des images servies par l'API (aucun n'est nécessaire sur l'hébergement actuel).
+  static const Map<String, String> mediaHeaders = {};
 
   /// Tuiles de carte. Par défaut OpenStreetMap, dont la politique d'usage interdit le
   /// trafic intensif : en production, utiliser [MAPS PROVIDER] via --dart-define=MAP_TILE_URL=...
   static const tileUrl = String.fromEnvironment('MAP_TILE_URL',
       defaultValue: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png');
 
-  /// Les photos uploadées (annonces, boutiques) sont renvoyées par le serveur en chemin
-  /// relatif (ex. "/media/xxxx"), jamais en adresse absolue : le serveur peut tourner
-  /// derrière une adresse qui change (tunnel Cloudflare gratuit du mode « PC comme
-  /// serveur »). On complète ce chemin avec l'adresse actuellement configurée — la même
-  /// que celle utilisée pour tous les appels d'API.
+  /// Les photos envoyées sont renvoyées par le serveur en chemin relatif ("/media/xxxx") :
+  /// on le complète avec l'adresse du serveur utilisée pour tout le reste.
   static String resolveMediaUrl(String url) {
     if (url.startsWith('http://') || url.startsWith('https://')) return url; // déjà absolue
     if (url.isEmpty) return url;

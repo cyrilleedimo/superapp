@@ -1,10 +1,11 @@
-// Connexion, inscription et vérification du numéro par code SMS.
+// Connexion (e-mail ou téléphone), inscription par e-mail avec code de vérification,
+// mot de passe oublié, et ajout d'un e-mail pour les comptes créés avant.
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/api/api_client.dart';
-import '../../core/config.dart';
+import '../../core/data.dart';
 import '../../core/providers.dart';
 import '../../core/theme/tokens.dart';
 import '../../widgets/common.dart';
@@ -17,10 +18,16 @@ String toE164(String input, {String defaultCountryCode = '237'}) {
   return '+$defaultCountryCode$digits';
 }
 
+bool _looksLikeEmail(String s) => RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(s.trim());
+
+String _withNext(String path, String? next) =>
+    next == null || next.isEmpty ? path : '$path${path.contains('?') ? '&' : '?'}next=${Uri.encodeQueryComponent(next)}';
+
 class _AuthFrame extends StatelessWidget {
-  const _AuthFrame({required this.title, required this.subtitle, required this.children});
+  const _AuthFrame({required this.title, required this.subtitle, required this.children, this.onBack});
   final String title, subtitle;
   final List<Widget> children;
+  final VoidCallback? onBack;
 
   @override
   Widget build(BuildContext context) {
@@ -31,8 +38,12 @@ class _AuthFrame extends StatelessWidget {
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 440),
             child: ListView(padding: const EdgeInsets.all(24), shrinkWrap: true, children: [
-              const LumoLogo(size: 36),
-              const SizedBox(height: 32),
+              Row(children: [
+                const LumoLogo(size: 36),
+                const Spacer(),
+                if (onBack != null) IconButton(tooltip: 'Fermer', onPressed: onBack, icon: const Icon(Icons.close_rounded)),
+              ]),
+              const SizedBox(height: 28),
               Text(title, style: t.headlineMedium),
               const SizedBox(height: 8),
               Text(subtitle, style: t.bodyLarge?.copyWith(color: LumoColors.slate)),
@@ -49,8 +60,9 @@ class _AuthFrame extends StatelessWidget {
 mixin _Submitting<T extends ConsumerStatefulWidget> on ConsumerState<T> {
   bool busy = false;
   String? error;
+  String? info;
   Future<void> run(Future<void> Function() action) async {
-    setState(() { busy = true; error = null; });
+    setState(() { busy = true; error = null; info = null; });
     try {
       await action();
     } on ApiException catch (e) {
@@ -65,117 +77,173 @@ Widget _errorText(String? e) => e == null
     ? const SizedBox.shrink()
     : Padding(padding: const EdgeInsets.only(bottom: 12), child: Text(e, style: const TextStyle(color: LumoColors.danger, fontWeight: FontWeight.w600)));
 
+Widget _infoText(String? e) => e == null
+    ? const SizedBox.shrink()
+    : Padding(padding: const EdgeInsets.only(bottom: 12), child: Text(e, style: const TextStyle(color: LumoColors.success, fontWeight: FontWeight.w600)));
+
+/// Champ mot de passe avec bouton « afficher ».
+class _PasswordField extends StatefulWidget {
+  const _PasswordField({required this.controller, this.label = 'Mot de passe', this.helper, this.onSubmitted, this.isNew = false});
+  final TextEditingController controller;
+  final String label;
+  final String? helper;
+  final ValueChanged<String>? onSubmitted;
+  final bool isNew;
+  @override
+  State<_PasswordField> createState() => _PasswordFieldState();
+}
+
+class _PasswordFieldState extends State<_PasswordField> {
+  bool _hidden = true;
+  @override
+  Widget build(BuildContext context) => TextField(
+        controller: widget.controller,
+        obscureText: _hidden,
+        autofillHints: [widget.isNew ? AutofillHints.newPassword : AutofillHints.password],
+        onSubmitted: widget.onSubmitted,
+        decoration: InputDecoration(
+          labelText: widget.label,
+          helperText: widget.helper,
+          suffixIcon: IconButton(
+            tooltip: _hidden ? 'Afficher' : 'Masquer',
+            onPressed: () => setState(() => _hidden = !_hidden),
+            icon: Icon(_hidden ? Icons.visibility_outlined : Icons.visibility_off_outlined),
+          ),
+        ),
+      );
+}
+
+Widget _codeField(TextEditingController c, {ValueChanged<String>? onFull}) => TextField(
+      controller: c, keyboardType: TextInputType.number, maxLength: 6,
+      autofillHints: const [AutofillHints.oneTimeCode],
+      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+      style: const TextStyle(fontSize: 24, letterSpacing: 8, fontWeight: FontWeight.w600),
+      decoration: const InputDecoration(labelText: 'Code à 6 chiffres', counterText: ''),
+      onChanged: (v) { if (v.length == 6) onFull?.call(v); },
+    );
+
+// ------------------------------------------------------------------ Connexion
 class LoginScreen extends ConsumerStatefulWidget {
-  const LoginScreen({super.key});
+  const LoginScreen({super.key, this.next});
+  final String? next;
   @override
   ConsumerState<LoginScreen> createState() => _LoginScreenState();
 }
 
 class _LoginScreenState extends ConsumerState<LoginScreen> with _Submitting<LoginScreen> {
-  final _phone = TextEditingController();
+  final _id = TextEditingController();
   final _pwd = TextEditingController();
   @override
-  void dispose() { _phone.dispose(); _pwd.dispose(); super.dispose(); }
+  void dispose() { _id.dispose(); _pwd.dispose(); super.dispose(); }
 
   @override
   Widget build(BuildContext context) => _AuthFrame(
         title: 'Bon retour',
-        subtitle: 'Connecte-toi avec ton numéro de téléphone.',
+        subtitle: 'Connecte-toi avec ton e-mail (ou ton numéro) et ton mot de passe.',
+        onBack: () => context.go('/'),
         children: [
           TextField(
-            controller: _phone, keyboardType: TextInputType.phone, autofillHints: const [AutofillHints.telephoneNumber],
-            decoration: const InputDecoration(labelText: 'Numéro de téléphone', hintText: '6XX XX XX XX', prefixText: '+237 '),
+            controller: _id, keyboardType: TextInputType.emailAddress, autocorrect: false,
+            autofillHints: const [AutofillHints.username, AutofillHints.email],
+            decoration: const InputDecoration(labelText: 'E-mail ou numéro de téléphone', hintText: 'toi@gmail.com'),
           ),
           const SizedBox(height: 12),
-          TextField(
-            controller: _pwd, obscureText: true, autofillHints: const [AutofillHints.password],
-            decoration: const InputDecoration(labelText: 'Mot de passe'),
-            onSubmitted: (_) => _submit(),
+          _PasswordField(controller: _pwd, onSubmitted: (_) => _submit()),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton(onPressed: () => context.go(_withNext('/forgot', widget.next)), child: const Text('Mot de passe oublié ?')),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 4),
           _errorText(error),
           FilledButton(onPressed: busy ? null : _submit, child: const Text('Se connecter')),
           const SizedBox(height: 12),
-          TextButton(onPressed: () => context.go('/register'), child: const Text('Créer un compte')),
-          const SizedBox(height: 24),
-          TextButton.icon(
-            onPressed: _editServer,
-            icon: const Icon(Icons.dns_outlined, size: 18),
-            label: Text(AppConfig.isConfigured ? 'Serveur : ${AppConfig.apiUrl}' : 'Serveur : à configurer',
-                style: const TextStyle(fontSize: 12, color: LumoColors.slate)),
-          ),
+          OutlinedButton(onPressed: () => context.go(_withNext('/register', widget.next)), child: const Text('Créer un compte')),
+          const SizedBox(height: 12),
+          TextButton(onPressed: () => context.go('/'), child: const Text('Continuer sans compte')),
         ],
       );
 
-  void _submit() => run(() => ref.read(sessionProvider.notifier).login(toE164(_phone.text), _pwd.text));
-
-  Future<void> _editServer() async {
-    final c = TextEditingController(text: AppConfig.apiUrl.isEmpty ? 'https://' : AppConfig.apiUrl);
-    final url = await showDialog<String>(
-      context: context,
-      builder: (d) => AlertDialog(
-        title: const Text('Adresse du serveur'),
-        content: TextField(controller: c, keyboardType: TextInputType.url, decoration: const InputDecoration(hintText: 'https://api.exemple.com')),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(d), child: const Text('Fermer')),
-          TextButton(onPressed: () => Navigator.pop(d, c.text), child: const Text('Enregistrer')),
-        ],
-      ),
-    );
-    c.dispose();
-    if (url == null) return;
-    final err = await AppConfig.setServer(url);
-    if (mounted) setState(() => error = err);
+  void _submit() {
+    final raw = _id.text.trim();
+    if (raw.isEmpty || _pwd.text.isEmpty) { setState(() => error = 'Saisis ton identifiant et ton mot de passe.'); return; }
+    final identifier = raw.contains('@') ? raw : toE164(raw);
+    run(() async {
+      try {
+        await ref.read(sessionProvider.notifier).login(identifier, _pwd.text);
+      } on ApiException catch (e) {
+        // Bon mot de passe mais e-mail jamais confirmé : un code vient d'être renvoyé.
+        if (e.code == 'email_not_verified' && mounted) {
+          final email = (e.message != null && e.message!.contains('@')) ? e.message! : raw;
+          context.go(_withNext('/verify?email=${Uri.encodeQueryComponent(email)}', widget.next));
+          return;
+        }
+        rethrow;
+      }
+    });
   }
 }
 
+// ---------------------------------------------------------------- Inscription
 class RegisterScreen extends ConsumerStatefulWidget {
-  const RegisterScreen({super.key});
+  const RegisterScreen({super.key, this.next});
+  final String? next;
   @override
   ConsumerState<RegisterScreen> createState() => _RegisterScreenState();
 }
 
 class _RegisterScreenState extends ConsumerState<RegisterScreen> with _Submitting<RegisterScreen> {
   final _name = TextEditingController();
+  final _email = TextEditingController();
   final _phone = TextEditingController();
   final _pwd = TextEditingController();
   @override
-  void dispose() { _name.dispose(); _phone.dispose(); _pwd.dispose(); super.dispose(); }
+  void dispose() { _name.dispose(); _email.dispose(); _phone.dispose(); _pwd.dispose(); super.dispose(); }
 
   @override
   Widget build(BuildContext context) => _AuthFrame(
         title: 'Créer un compte',
-        subtitle: 'On t\'envoie un code par SMS pour vérifier ton numéro.',
+        subtitle: 'On t\'envoie un code par e-mail pour confirmer que c\'est bien toi.',
+        onBack: () => context.go('/'),
         children: [
-          TextField(controller: _name, textCapitalization: TextCapitalization.words,
+          TextField(controller: _name, textCapitalization: TextCapitalization.words, autofillHints: const [AutofillHints.name],
               decoration: const InputDecoration(labelText: 'Prénom et nom')),
           const SizedBox(height: 12),
-          TextField(controller: _phone, keyboardType: TextInputType.phone,
-              decoration: const InputDecoration(labelText: 'Numéro de téléphone', hintText: '6XX XX XX XX', prefixText: '+237 ')),
+          TextField(controller: _email, keyboardType: TextInputType.emailAddress, autocorrect: false,
+              autofillHints: const [AutofillHints.email],
+              decoration: const InputDecoration(labelText: 'Adresse e-mail', hintText: 'toi@gmail.com')),
           const SizedBox(height: 12),
-          TextField(controller: _pwd, obscureText: true, autofillHints: const [AutofillHints.newPassword],
-              decoration: const InputDecoration(labelText: 'Mot de passe', helperText: '10 caractères minimum')),
+          TextField(controller: _phone, keyboardType: TextInputType.phone, autofillHints: const [AutofillHints.telephoneNumber],
+              decoration: const InputDecoration(labelText: 'Téléphone (facultatif)', hintText: '6XX XX XX XX', prefixText: '+237 ',
+                  helperText: 'Utile pour les livraisons et Mobile Money.')),
+          const SizedBox(height: 12),
+          _PasswordField(controller: _pwd, isNew: true, helper: '8 caractères minimum', onSubmitted: (_) => _submit()),
           const SizedBox(height: 20),
           _errorText(error),
-          FilledButton(onPressed: busy ? null : _submit, child: const Text('Recevoir le code')),
+          FilledButton(onPressed: busy ? null : _submit, child: const Text('Recevoir mon code')),
           const SizedBox(height: 12),
-          TextButton(onPressed: () => context.go('/login'), child: const Text('J\'ai déjà un compte')),
+          TextButton(onPressed: () => context.go(_withNext('/login', widget.next)), child: const Text('J\'ai déjà un compte')),
         ],
       );
 
   void _submit() {
-    if (_pwd.text.length < 10) { setState(() => error = 'Le mot de passe doit faire au moins 10 caractères.'); return; }
-    final phone = toE164(_phone.text);
+    final email = _email.text.trim().toLowerCase();
+    if (_name.text.trim().length < 2) { setState(() => error = 'Indique ton prénom et ton nom.'); return; }
+    if (!_looksLikeEmail(email)) { setState(() => error = 'Cette adresse e-mail ne semble pas valide.'); return; }
+    if (_pwd.text.length < 8) { setState(() => error = 'Le mot de passe doit faire au moins 8 caractères.'); return; }
+    final phoneDigits = _phone.text.replaceAll(RegExp(r'\D'), '');
     run(() async {
-      await ref.read(sessionProvider.notifier).register(phone, _name.text.trim(), _pwd.text);
-      if (mounted) context.go('/verify?phone=${Uri.encodeQueryComponent(phone)}');
+      await ref.read(sessionProvider.notifier).register(
+          name: _name.text.trim(), email: email, password: _pwd.text, phone: phoneDigits.isEmpty ? null : toE164(_phone.text));
+      if (mounted) context.go(_withNext('/verify?email=${Uri.encodeQueryComponent(email)}', widget.next));
     });
   }
 }
 
+// ----------------------------------------------------- Vérification de l'e-mail
 class VerifyScreen extends ConsumerStatefulWidget {
-  const VerifyScreen({super.key, required this.phone});
-  final String phone;
+  const VerifyScreen({super.key, required this.email, this.next});
+  final String email;
+  final String? next;
   @override
   ConsumerState<VerifyScreen> createState() => _VerifyScreenState();
 }
@@ -187,22 +255,151 @@ class _VerifyScreenState extends ConsumerState<VerifyScreen> with _Submitting<Ve
 
   @override
   Widget build(BuildContext context) => _AuthFrame(
-        title: 'Vérifie ton numéro',
-        subtitle: 'Saisis le code à 6 chiffres envoyé au ${widget.phone}.',
+        title: 'Vérifie ton e-mail',
+        subtitle: 'Saisis le code à 6 chiffres envoyé à ${widget.email}. Pense à regarder dans les courriers indésirables.',
+        onBack: () => context.go('/login'),
         children: [
-          TextField(
-            controller: _code, keyboardType: TextInputType.number, maxLength: 6,
-            autofillHints: const [AutofillHints.oneTimeCode],
-            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-            style: const TextStyle(fontSize: 24, letterSpacing: 8, fontWeight: FontWeight.w600),
-            decoration: const InputDecoration(labelText: 'Code', counterText: ''),
-            onChanged: (v) { if (v.length == 6) _submit(); },
-          ),
+          _codeField(_code, onFull: (_) => _submit()),
           const SizedBox(height: 20),
           _errorText(error),
+          _infoText(info),
           FilledButton(onPressed: busy ? null : _submit, child: const Text('Vérifier')),
+          const SizedBox(height: 12),
+          TextButton(onPressed: busy ? null : _resend, child: const Text('Renvoyer le code')),
         ],
       );
 
-  void _submit() => run(() => ref.read(sessionProvider.notifier).verify(widget.phone, _code.text));
+  void _submit() {
+    if (_code.text.length != 6 || busy) return;
+    run(() => ref.read(sessionProvider.notifier).verify(widget.email, _code.text));
+  }
+
+  void _resend() => run(() async {
+        await ref.read(sessionProvider.notifier).resendCode(widget.email);
+        if (mounted) setState(() => info = 'Nouveau code envoyé.');
+      });
+}
+
+// --------------------------------------------------------- Mot de passe oublié
+class ForgotPasswordScreen extends ConsumerStatefulWidget {
+  const ForgotPasswordScreen({super.key, this.next});
+  final String? next;
+  @override
+  ConsumerState<ForgotPasswordScreen> createState() => _ForgotPasswordScreenState();
+}
+
+class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> with _Submitting<ForgotPasswordScreen> {
+  final _email = TextEditingController();
+  final _code = TextEditingController();
+  final _pwd = TextEditingController();
+  bool _codeSent = false;
+  @override
+  void dispose() { _email.dispose(); _code.dispose(); _pwd.dispose(); super.dispose(); }
+
+  @override
+  Widget build(BuildContext context) => _AuthFrame(
+        title: 'Mot de passe oublié',
+        subtitle: _codeSent
+            ? 'Si un compte existe avec ${_email.text.trim()}, un code vient d\'y être envoyé. Saisis-le et choisis un nouveau mot de passe.'
+            : 'Indique l\'e-mail de ton compte : on t\'envoie un code pour choisir un nouveau mot de passe.',
+        onBack: () => context.go(_withNext('/login', widget.next)),
+        children: [
+          if (!_codeSent) ...[
+            TextField(controller: _email, keyboardType: TextInputType.emailAddress, autocorrect: false,
+                autofillHints: const [AutofillHints.email],
+                decoration: const InputDecoration(labelText: 'Adresse e-mail'), onSubmitted: (_) => _send()),
+            const SizedBox(height: 20),
+            _errorText(error),
+            FilledButton(onPressed: busy ? null : _send, child: const Text('Recevoir le code')),
+          ] else ...[
+            _codeField(_code),
+            const SizedBox(height: 12),
+            _PasswordField(controller: _pwd, isNew: true, label: 'Nouveau mot de passe', helper: '8 caractères minimum', onSubmitted: (_) => _reset()),
+            const SizedBox(height: 20),
+            _errorText(error),
+            FilledButton(onPressed: busy ? null : _reset, child: const Text('Changer mon mot de passe')),
+            const SizedBox(height: 12),
+            TextButton(onPressed: busy ? null : () => setState(() { _codeSent = false; error = null; }), child: const Text('Utiliser une autre adresse')),
+          ],
+        ],
+      );
+
+  void _send() {
+    final email = _email.text.trim().toLowerCase();
+    if (!_looksLikeEmail(email)) { setState(() => error = 'Cette adresse e-mail ne semble pas valide.'); return; }
+    run(() async {
+      await ref.read(sessionProvider.notifier).forgotPassword(email);
+      if (mounted) setState(() => _codeSent = true);
+    });
+  }
+
+  void _reset() {
+    if (_code.text.length != 6) { setState(() => error = 'Saisis le code à 6 chiffres reçu par e-mail.'); return; }
+    if (_pwd.text.length < 8) { setState(() => error = 'Le mot de passe doit faire au moins 8 caractères.'); return; }
+    run(() => ref.read(sessionProvider.notifier).resetPassword(_email.text.trim().toLowerCase(), _code.text, _pwd.text));
+  }
+}
+
+// ------------------------------------- Ajouter son e-mail (comptes créés avant)
+class AddEmailScreen extends ConsumerStatefulWidget {
+  const AddEmailScreen({super.key});
+  @override
+  ConsumerState<AddEmailScreen> createState() => _AddEmailScreenState();
+}
+
+class _AddEmailScreenState extends ConsumerState<AddEmailScreen> with _Submitting<AddEmailScreen> {
+  final _email = TextEditingController();
+  final _code = TextEditingController();
+  bool _codeSent = false;
+  @override
+  void dispose() { _email.dispose(); _code.dispose(); super.dispose(); }
+
+  void _close() => context.canPop() ? context.pop() : context.go('/');
+
+  @override
+  Widget build(BuildContext context) => _AuthFrame(
+        title: 'Ajoute ton e-mail',
+        subtitle: _codeSent
+            ? 'Saisis le code à 6 chiffres envoyé à ${_email.text.trim()}.'
+            : 'Ton e-mail sert à récupérer ton compte si tu oublies ton mot de passe, et à recevoir tes confirmations de commande.',
+        onBack: _close,
+        children: [
+          if (!_codeSent) ...[
+            TextField(controller: _email, keyboardType: TextInputType.emailAddress, autocorrect: false,
+                autofillHints: const [AutofillHints.email],
+                decoration: const InputDecoration(labelText: 'Adresse e-mail', hintText: 'toi@gmail.com'), onSubmitted: (_) => _send()),
+            const SizedBox(height: 20),
+            _errorText(error),
+            FilledButton(onPressed: busy ? null : _send, child: const Text('Recevoir le code')),
+          ] else ...[
+            _codeField(_code, onFull: (_) => _verify()),
+            const SizedBox(height: 20),
+            _errorText(error),
+            FilledButton(onPressed: busy ? null : _verify, child: const Text('Confirmer mon e-mail')),
+            const SizedBox(height: 12),
+            TextButton(onPressed: busy ? null : () => setState(() { _codeSent = false; error = null; }), child: const Text('Corriger l\'adresse')),
+          ],
+        ],
+      );
+
+  void _send() {
+    final email = _email.text.trim().toLowerCase();
+    if (!_looksLikeEmail(email)) { setState(() => error = 'Cette adresse e-mail ne semble pas valide.'); return; }
+    run(() async {
+      await ref.read(apiClientProvider).post('/me/email', body: {'email': email});
+      if (mounted) setState(() => _codeSent = true);
+    });
+  }
+
+  void _verify() {
+    if (_code.text.length != 6 || busy) return;
+    run(() async {
+      await ref.read(apiClientProvider).post('/me/email/verify', body: {'code': _code.text});
+      ref.invalidate(jsonProvider('/me'));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('E-mail confirmé. Ton compte est sécurisé.')));
+        _close();
+      }
+    });
+  }
 }

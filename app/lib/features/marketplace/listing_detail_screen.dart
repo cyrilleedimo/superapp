@@ -43,7 +43,7 @@ class _Body extends StatelessWidget {
     final wide = MediaQuery.sizeOf(context).width >= kDesktopBreakpoint;
 
     final photo = Stack(children: [
-      ProductVisual(seed: l.id.hashCode, photoUrl: l.photos.isEmpty ? null : l.photos.first, height: wide ? 560 : 430, radius: wide ? 20 : 0),
+      _Gallery(listing: l, height: wide ? 560 : 430, radius: wide ? 20 : 0),
       Positioned(
         left: 16, top: 16,
         child: IconButton.filled(
@@ -64,7 +64,9 @@ class _Body extends StatelessWidget {
         const SizedBox(height: 16),
         Text(formatXaf(l.priceXaf), style: t.headlineMedium),
         const SizedBox(height: 4),
-        const ProtectionBadge('Protection acheteur incluse au paiement'),
+        const ProtectionBadge('Protection acheteur si tu paies en ligne'),
+        if (l.photos.length > 1)
+          Padding(padding: const EdgeInsets.only(top: 6), child: Text('${l.photos.length} photos — fais défiler', style: t.bodySmall)),
         const SizedBox(height: 16),
         const Divider(),
         const SizedBox(height: 16),
@@ -120,22 +122,75 @@ class _Body extends StatelessWidget {
   }
 }
 
-class _Actions extends StatelessWidget {
+/// Photos de l'annonce : on fait défiler du doigt, des points indiquent la position.
+class _Gallery extends StatefulWidget {
+  const _Gallery({required this.listing, required this.height, required this.radius});
+  final Listing listing;
+  final double height, radius;
+  @override
+  State<_Gallery> createState() => _GalleryState();
+}
+
+class _GalleryState extends State<_Gallery> {
+  int _index = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    final l = widget.listing;
+    if (l.photos.length < 2) {
+      return ProductVisual(seed: l.id.hashCode, photoUrl: l.photos.isEmpty ? null : l.photos.first, height: widget.height, radius: widget.radius);
+    }
+    return SizedBox(
+      height: widget.height,
+      child: Stack(children: [
+        PageView.builder(
+          itemCount: l.photos.length,
+          onPageChanged: (i) => setState(() => _index = i),
+          itemBuilder: (_, i) => ProductVisual(seed: l.id.hashCode, photoUrl: l.photos[i], height: widget.height, radius: widget.radius),
+        ),
+        Positioned(
+          left: 0, right: 0, bottom: 12,
+          child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+            for (var i = 0; i < l.photos.length; i++)
+              Container(
+                margin: const EdgeInsets.symmetric(horizontal: 3),
+                width: 8, height: 8,
+                decoration: BoxDecoration(shape: BoxShape.circle, color: i == _index ? Colors.white : Colors.white54,
+                    boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 2)]),
+              ),
+          ]),
+        ),
+      ]),
+    );
+  }
+}
+
+class _Actions extends ConsumerWidget {
   const _Actions({required this.l, required this.available});
   final Listing l;
   final bool available;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final signedIn = ref.watch(signedInProvider);
+    // Sans compte, on peut tout regarder ; pour agir, on passe par la connexion puis on revient ici.
+    void needAccount() => context.push('/login?next=${Uri.encodeQueryComponent('/listing/${l.id}')}');
     if (!available) {
-      return const Text('Cet article n\'est plus disponible.', style: TextStyle(color: LumoColors.slate));
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+        decoration: BoxDecoration(color: LumoColors.mist, borderRadius: BorderRadius.circular(14)),
+        child: Text(l.status == 'sold' ? 'Vendu' : 'Réservé par un acheteur', textAlign: TextAlign.center,
+            style: const TextStyle(color: LumoColors.slate, fontWeight: FontWeight.w600)),
+      );
     }
     return Row(children: [
       Expanded(
-        child: Consumer(
-          builder: (context, ref, _) => OutlinedButton(
+        child: Builder(
+          builder: (context) => OutlinedButton(
             // Ouvre (ou retrouve) la conversation avec le vendeur ; les offres se font dans le chat.
             onPressed: () async {
+              if (!signedIn) { needAccount(); return; }
               try {
                 final c = await ref.read(apiClientProvider).post('/conversations', body: {'listingId': l.id});
                 if (context.mounted) context.push('/chat/${c['id']}');
@@ -150,7 +205,9 @@ class _Actions extends StatelessWidget {
       const SizedBox(width: 10),
       Expanded(
         child: FilledButton(
-          onPressed: () => context.push('/checkout/${l.id}'),
+          onPressed: () {
+            if (signedIn) { context.push('/checkout/${l.id}'); } else { needAccount(); }
+          },
           child: const Text('Acheter'),
         ),
       ),

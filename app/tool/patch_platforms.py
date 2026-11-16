@@ -4,6 +4,8 @@
   visibilité des liens https (url_launcher), pas de sauvegarde cloud des données,
   http autorisé UNIQUEMENT en debug.
 - Windows : titre de fenêtre.
+- iOS : nom affiché et textes d'autorisation.
+- Web : titre, langue, nom de l'application installée.
 Idempotent : peut être relancé sans dégâts.
 """
 import pathlib
@@ -78,4 +80,44 @@ def win_main(s: str) -> str:
 
 
 patch(root / "windows/runner/main.cpp", win_main)
+
+
+# ---- iOS : nom affiché + textes d'autorisation (photos, appareil photo, position)
+def ios_plist(s: str) -> str:
+    s = re.sub(r"(<key>CFBundleDisplayName</key>\s*<string>)[^<]*(</string>)", rf"\g<1>{APP_TITLE}\g<2>", s)
+    keys = {
+        "NSPhotoLibraryUsageDescription": "Pour ajouter des photos à tes annonces et à tes messages.",
+        "NSCameraUsageDescription": "Pour prendre en photo les articles que tu vends.",
+        "NSLocationWhenInUseUsageDescription": "Pour indiquer ton point de départ lors d'une course.",
+    }
+    for k, v in keys.items():
+        if k not in s:
+            s = s.replace("<dict>", f"<dict>\n\t<key>{k}</key>\n\t<string>{v}</string>", 1)
+    return s
+
+
+patch(root / "ios/Runner/Info.plist", ios_plist)
+
+
+# ---- Web : titre, langue et nom de l'application installée (PWA)
+def web_index(s: str) -> str:
+    s = re.sub(r"<title>[^<]*</title>", f"<title>{APP_TITLE}</title>", s)
+    s = s.replace('<html>', '<html lang="fr">')
+    s = re.sub(r'(<meta name="apple-mobile-web-app-title" content=")[^"]*(")', rf"\g<1>{APP_TITLE}\g<2>", s)
+    s = re.sub(r'(<meta name="description" content=")[^"]*(")',
+               rf"\g<1>{APP_TITLE} — seconde main, courses, covoiturage, repas, boutiques et voyages.\g<2>", s)
+    return s
+
+
+def web_manifest(s: str) -> str:
+    s = re.sub(r'"name":\s*"[^"]*"', f'"name": "{APP_TITLE}"', s, count=1)
+    s = re.sub(r'"short_name":\s*"[^"]*"', f'"short_name": "{APP_TITLE}"', s, count=1)
+    s = re.sub(r'"description":\s*"[^"]*"', f'"description": "{APP_TITLE} — tout ton quotidien dans une seule application."', s, count=1)
+    s = re.sub(r'"background_color":\s*"[^"]*"', '"background_color": "#FFFFFF"', s, count=1)
+    s = re.sub(r'"theme_color":\s*"[^"]*"', '"theme_color": "#2B3CF0"', s, count=1)
+    return s
+
+
+patch(root / "web/index.html", web_index)
+patch(root / "web/manifest.json", web_manifest)
 print("Plateformes prêtes.")

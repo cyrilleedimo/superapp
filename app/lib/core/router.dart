@@ -1,5 +1,6 @@
 // Navigation : barre basse sur Android, rail latéral sur Windows (≥ 1024 px).
-// Les routes protégées redirigent vers /login tant que la session n'est pas ouverte.
+// L'accueil, la recherche et les fiches sont visibles sans compte ; toute action
+// (acheter, vendre, écrire, profil) redirige vers la connexion puis revient au bon endroit.
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -14,7 +15,9 @@ import '../features/messages/messages_screens.dart';
 import '../features/orders/orders_screens.dart';
 import '../features/rides/rides_screens.dart';
 import '../features/stores/stores_screens.dart';
+import '../features/onboarding/onboarding_screens.dart';
 import '../features/travel/travel_screen.dart';
+import 'config.dart';
 import 'providers.dart';
 import 'theme/tokens.dart';
 
@@ -25,27 +28,42 @@ class _SessionListenable extends ChangeNotifier {
   }
 }
 
+/// Pages visibles sans compte : on découvre l'application avant de s'inscrire.
+bool _isPublic(String loc) =>
+    loc == '/' || loc == '/explore' || loc == '/travel' || loc == '/help' || loc == '/welcome' ||
+    loc.startsWith('/listing/') || loc.startsWith('/stores/') || loc.startsWith('/store/');
+
+const _authPages = {'/login', '/register', '/verify', '/forgot'};
+
+/// Destination demandée avant la connexion (toujours un chemin interne).
+String _safeNext(String? next) => (next != null && next.startsWith('/') && !next.startsWith('//')) ? next : '/';
+
 final routerProvider = Provider<GoRouter>((ref) {
-  const publicRoutes = {'/login', '/register', '/verify'};
   GoRoute page(String path, Widget Function(GoRouterState s) build) =>
       GoRoute(path: path, builder: (_, s) => build(s));
 
   return GoRouter(
-    initialLocation: '/',
+    initialLocation: AppConfig.onboarded ? '/' : '/welcome',
     refreshListenable: _SessionListenable(ref),
     redirect: (context, state) {
       final session = ref.read(sessionProvider);
       final loc = state.matchedLocation;
       if (session == SessionState.unknown) return null; // restauration en cours
-      final isPublic = publicRoutes.contains(loc);
-      if (session == SessionState.signedOut && !isPublic) return '/login';
-      if (session == SessionState.signedIn && isPublic) return '/';
+      final isAuthPage = _authPages.contains(loc);
+      if (session == SessionState.signedOut && !isAuthPage && !_isPublic(loc)) {
+        return '/login?next=${Uri.encodeQueryComponent(state.uri.toString())}';
+      }
+      if (session == SessionState.signedIn && isAuthPage) return _safeNext(state.uri.queryParameters['next']);
       return null;
     },
     routes: [
-      page('/login', (_) => const LoginScreen()),
-      page('/register', (_) => const RegisterScreen()),
-      page('/verify', (s) => VerifyScreen(phone: s.uri.queryParameters['phone'] ?? '')),
+      page('/welcome', (_) => const WelcomeScreen()),
+      page('/help', (_) => const HelpScreen()),
+      page('/login', (s) => LoginScreen(next: s.uri.queryParameters['next'])),
+      page('/register', (s) => RegisterScreen(next: s.uri.queryParameters['next'])),
+      page('/verify', (s) => VerifyScreen(email: s.uri.queryParameters['email'] ?? '', next: s.uri.queryParameters['next'])),
+      page('/forgot', (s) => ForgotPasswordScreen(next: s.uri.queryParameters['next'])),
+      page('/add-email', (_) => const AddEmailScreen()),
       page('/listing/:id', (s) => ListingDetailScreen(id: s.pathParameters['id']!)),
       page('/checkout/:id', (s) => CheckoutScreen(listingId: s.pathParameters['id']!, offerId: s.uri.queryParameters['offer'])),
       page('/pay/:id', (s) => PayOrderScreen(orderId: s.pathParameters['id']!)),
@@ -81,7 +99,7 @@ final routerProvider = Provider<GoRouter>((ref) {
   );
 });
 
-class _AdaptiveShell extends StatelessWidget {
+class _AdaptiveShell extends ConsumerWidget {
   const _AdaptiveShell({required this.shell});
   final StatefulNavigationShell shell;
 
@@ -94,8 +112,14 @@ class _AdaptiveShell extends StatelessWidget {
 
   void _go(int i) => shell.goBranch(i, initialLocation: i == shell.currentIndex);
 
+  Widget _icon(IconData icon, int index, int unread, {Color? color}) {
+    final w = Icon(icon, color: color);
+    return index == 2 && unread > 0 ? Badge(label: Text(unread > 99 ? '99+' : '$unread'), child: w) : w;
+  }
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final unread = ref.watch(badgesProvider).messages;
     final wide = MediaQuery.sizeOf(context).width >= kDesktopBreakpoint;
     final sellButton = FloatingActionButton(
       heroTag: 'sell',
@@ -116,8 +140,9 @@ class _AdaptiveShell extends StatelessWidget {
             labelType: NavigationRailLabelType.all,
             leading: Padding(padding: const EdgeInsets.symmetric(vertical: 16), child: sellButton),
             destinations: [
-              for (final d in _dest)
-                NavigationRailDestination(icon: Icon(d.$1), selectedIcon: Icon(d.$2, color: LumoColors.action), label: Text(d.$3)),
+              for (var i = 0; i < _dest.length; i++)
+                NavigationRailDestination(
+                    icon: _icon(_dest[i].$1, i, unread), selectedIcon: _icon(_dest[i].$2, i, unread, color: LumoColors.action), label: Text(_dest[i].$3)),
             ],
           ),
           const VerticalDivider(width: 1),
@@ -132,8 +157,9 @@ class _AdaptiveShell extends StatelessWidget {
         selectedIndex: shell.currentIndex,
         onDestinationSelected: _go,
         destinations: [
-          for (final d in _dest)
-            NavigationDestination(icon: Icon(d.$1), selectedIcon: Icon(d.$2, color: LumoColors.action), label: d.$3),
+          for (var i = 0; i < _dest.length; i++)
+            NavigationDestination(
+                icon: _icon(_dest[i].$1, i, unread), selectedIcon: _icon(_dest[i].$2, i, unread, color: LumoColors.action), label: _dest[i].$3),
         ],
       ),
     );

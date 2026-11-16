@@ -1,0 +1,10 @@
+# Icônes pour le job Web (les dossiers android/ et ios/ n'y existent pas).
+flutter_launcher_icons:
+  image_path: "assets/icon.png"
+  android: false
+  ios: false
+  web:
+    generate: true
+    image_path: "assets/icon.png"
+    background_color: "#FFFFFF"
+    theme_color: "#2B3CF0"

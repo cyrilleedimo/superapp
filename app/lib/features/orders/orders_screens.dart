@@ -11,10 +11,12 @@ import '../../core/format.dart';
 import '../../core/providers.dart';
 import '../../core/theme/tokens.dart';
 import '../../widgets/common.dart';
+import '../auth/auth_screens.dart' show toE164;
 
 const _statusLabels = {
   'pending_payment': 'En attente de paiement',
-  'paid': 'Payée · argent en séquestre',
+  'paid': 'Payée · argent bloqué en sécurité',
+  'cash_due': 'À payer à la remise',
   'completed': 'Terminée',
   'disputed': 'Litige en cours',
   'refunded': 'Remboursée',
@@ -27,7 +29,7 @@ const _stepLabels = {
 };
 
 Color _statusColor(String s) => switch (s) {
-      'paid' => LumoColors.action,
+      'paid' || 'cash_due' => LumoColors.action,
       'completed' => LumoColors.success,
       'disputed' => LumoColors.warning,
       'cancelled' || 'refunded' => LumoColors.slate,
@@ -162,13 +164,17 @@ class OrderDetailScreen extends ConsumerWidget {
                     ]),
                   ),
                 const Divider(height: 24),
-                _line('Protection acheteur', formatXaf(asInt(o['buyerFeeXaf']))),
+                if (asInt(o['buyerFeeXaf']) > 0) _line('Protection acheteur', formatXaf(asInt(o['buyerFeeXaf']))),
                 _line('Total', formatXaf(asInt(o['totalXaf'])), bold: true),
+                if (o['otherName'] != null) ...[
+                  const SizedBox(height: 12),
+                  _line(isBuyer ? 'Vendeur' : 'Acheteur', '${o['otherName']}${o['otherPhone'] != null ? ' · ${o['otherPhone']}' : ''}'),
+                ],
                 const SizedBox(height: 24),
 
                 // ---- Actions acheteur
                 if (isBuyer && status == 'pending_payment') ...[
-                  FilledButton(onPressed: () => context.push('/pay/$id'), child: const Text('Payer')),
+                  FilledButton(onPressed: () => context.push('/pay/$id'), child: const Text('Choisir comment payer')),
                   const SizedBox(height: 10),
                   OutlinedButton(
                     onPressed: () async { if (await runAction(context, () => api.post('/orders/$id/cancel'), success: 'Commande annulée')) reload(); },
@@ -189,9 +195,21 @@ class OrderDetailScreen extends ConsumerWidget {
                   const SizedBox(height: 10),
                   OutlinedButton(onPressed: () => _dispute(context, ref, id, reload), child: const Text('Signaler un problème')),
                 ],
+                if (isBuyer && status == 'cash_due') ...[
+                  Text('Tu paies le vendeur directement au moment de la remise (espèces ou Mobile Money). '
+                      'Vérifie l\'article avant de payer : ce mode n\'inclut pas la protection acheteur.', style: t.bodyMedium),
+                  const SizedBox(height: 12),
+                  FilledButton(
+                    onPressed: () async {
+                      final ok = await _confirm(context, 'Commande reçue et payée ?', 'Confirme seulement une fois l\'article en main et le vendeur payé.');
+                      if (ok && context.mounted && await runAction(context, () => api.post('/orders/$id/confirm'), success: 'Commande terminée. Merci !')) reload();
+                    },
+                    child: const Text('J\'ai reçu et payé ma commande'),
+                  ),
+                ],
 
                 // ---- Actions vendeur / commerçant
-                if (isSeller && status == 'paid' && usesDelivery && nextStep != null)
+                if (isSeller && (status == 'paid' || status == 'cash_due') && usesDelivery && nextStep != null)
                   FilledButton(
                     onPressed: () async {
                       if (await runAction(context, () => api.post('/orders/$id/fulfillment', body: {'step': nextStep}))) reload();
@@ -203,6 +221,21 @@ class OrderDetailScreen extends ConsumerWidget {
                     padding: const EdgeInsets.only(top: 12),
                     child: Text('Tu seras payé dès que le client confirme la réception.', style: t.bodySmall),
                   ),
+                if (isSeller && status == 'cash_due')
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: Text('L\'acheteur te paie directement à la remise. Encaisse avant de remettre l\'article.', style: t.bodySmall),
+                  ),
+                if (status == 'cash_due') ...[
+                  const SizedBox(height: 10),
+                  OutlinedButton(
+                    onPressed: () async {
+                      final ok = await _confirm(context, 'Annuler cette commande ?', 'L\'article redeviendra disponible pour les autres.');
+                      if (ok && context.mounted && await runAction(context, () => api.post('/orders/$id/cancel'), success: 'Commande annulée')) reload();
+                    },
+                    child: const Text('Annuler la commande'),
+                  ),
+                ],
               ]),
             ),
           );
@@ -257,10 +290,13 @@ Future<void> _dispute(BuildContext context, WidgetRef ref, String id, VoidCallba
 }
 
 // ------------------------------------------------------------ Paiement
-enum _PayStep { ready, redirected, verifying, paid }
+enum _PayStep { ready, waiting, verifying, paid }
 
-/// Paiement d'une commande, quel que soit le service. Aucune donnée de carte ni
-/// code Mobile Money n'est saisi dans l'app : page hébergée du prestataire (PCI-DSS SAQ A).
+/// Paiement d'une commande, quel que soit le service. Trois façons :
+///  1. Mobile Money direct : on saisit son numéro, on confirme sur son téléphone (code secret
+///     tapé dans le menu de l'opérateur, jamais dans l'application) ;
+///  2. page sécurisée du prestataire ;
+///  3. à la remise, de la main à la main (sans protection acheteur, sans frais).
 class PayOrderScreen extends ConsumerStatefulWidget {
   const PayOrderScreen({super.key, required this.orderId});
   final String orderId;
@@ -270,31 +306,29 @@ class PayOrderScreen extends ConsumerStatefulWidget {
 
 class _PayOrderScreenState extends ConsumerState<PayOrderScreen> with WidgetsBindingObserver {
   _PayStep _step = _PayStep.ready;
+  final _phone = TextEditingController();
   String? _ref;
   String? _error;
   bool _busy = false;
+  bool _phonePrefilled = false;
 
   ApiClient get _api => ref.read(apiClientProvider);
+  String get _orderPath => '/orders/${widget.orderId}';
 
   @override
   void initState() { super.initState(); WidgetsBinding.instance.addObserver(this); }
   @override
-  void dispose() { WidgetsBinding.instance.removeObserver(this); super.dispose(); }
+  void dispose() { WidgetsBinding.instance.removeObserver(this); _phone.dispose(); super.dispose(); }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed && _step == _PayStep.redirected) _verify();
+    if (state == AppLifecycleState.resumed && _step == _PayStep.waiting) _verify();
   }
 
-  Future<void> _pay() async {
+  Future<void> _guard(Future<void> Function() action) async {
     setState(() { _busy = true; _error = null; });
     try {
-      final r = await _api.post('/orders/${widget.orderId}/pay');
-      _ref = r['reference'] as String;
-      final uri = Uri.parse(r['checkoutUrl'] as String);
-      if (uri.scheme != 'https') throw ApiException('insecure_checkout_url');
-      if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) throw ApiException('cannot_open_checkout');
-      if (mounted) setState(() => _step = _PayStep.redirected);
+      await action();
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.userMessage);
     } finally {
@@ -302,16 +336,50 @@ class _PayOrderScreenState extends ConsumerState<PayOrderScreen> with WidgetsBin
     }
   }
 
-  Future<void> _verify() async {
+  // 1. Demande envoyée sur le téléphone.
+  Future<void> _payMobile() async {
+    final digits = _phone.text.replaceAll(RegExp(r'\D'), '');
+    if (digits.length < 8) { setState(() => _error = 'Saisis ton numéro Orange Money ou MTN MoMo.'); return; }
+    await _guard(() async {
+      final r = await _api.post('$_orderPath/pay-mobile', body: {'phone': toE164(_phone.text)});
+      _ref = r['reference'] as String;
+      if (mounted) setState(() => _step = _PayStep.waiting);
+    });
+    if (_step == _PayStep.waiting) _verify(rounds: 20);
+  }
+
+  // 2. Page sécurisée du prestataire.
+  Future<void> _payHosted() => _guard(() async {
+        final r = await _api.post('$_orderPath/pay');
+        _ref = r['reference'] as String;
+        final uri = Uri.parse(r['checkoutUrl'] as String);
+        if (uri.scheme != 'https') throw ApiException('insecure_checkout_url');
+        if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) throw ApiException('cannot_open_checkout');
+        if (mounted) setState(() => _step = _PayStep.waiting);
+      });
+
+  // 3. À la remise.
+  Future<void> _payCash() async {
+    final ok = await _confirm(context, 'Payer à la remise ?',
+        'Tu paieras le vendeur directement en récupérant ta commande. C\'est sans frais, mais sans protection acheteur : vérifie bien l\'article avant de payer.');
+    if (!ok || !mounted) return;
+    await _guard(() async {
+      await _api.post('$_orderPath/pay-cash');
+      ref.invalidate(jsonProvider(_orderPath));
+      if (mounted) context.go(_orderPath);
+    });
+  }
+
+  Future<void> _verify({int rounds = 6}) async {
     final reference = _ref;
-    if (reference == null) return;
+    if (reference == null || _step == _PayStep.verifying) return;
     setState(() { _step = _PayStep.verifying; _error = null; });
-    for (var i = 0; i < 6; i++) {
+    for (var i = 0; i < rounds; i++) {
       try {
         final status = (await _api.post('/payments/$reference/refresh'))['status'] as String;
         if (!mounted) return;
         if (status == 'succeeded') {
-          ref.invalidate(jsonProvider('/orders/${widget.orderId}'));
+          ref.invalidate(jsonProvider(_orderPath));
           setState(() => _step = _PayStep.paid);
           return;
         }
@@ -320,25 +388,41 @@ class _PayOrderScreenState extends ConsumerState<PayOrderScreen> with WidgetsBin
           return;
         }
       } on ApiException catch (_) {/* on réessaie */}
-      await Future<void>.delayed(const Duration(seconds: 2));
+      await Future<void>.delayed(const Duration(seconds: 3));
+      if (!mounted) return;
     }
-    if (mounted) setState(() { _step = _PayStep.redirected; _error = 'Paiement encore en cours de confirmation. Réessaie dans un instant.'; });
+    if (mounted) setState(() { _step = _PayStep.waiting; _error = 'Paiement pas encore confirmé. Valide la demande sur ton téléphone, puis touche « J\'ai payé, vérifier ».'; });
   }
 
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context).textTheme;
-    final async = ref.watch(jsonProvider('/orders/${widget.orderId}'));
+    final async = ref.watch(jsonProvider(_orderPath));
+    final options = ref.watch(jsonProvider('/payments/options')).valueOrNull;
+    final me = ref.watch(jsonProvider('/me')).valueOrNull;
+    if (!_phonePrefilled && me != null) {
+      _phonePrefilled = true;
+      final p = (me['phone'] as String?) ?? '';
+      if (p.startsWith('+237')) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && _phone.text.isEmpty) _phone.text = p.substring(4);
+        });
+      }
+    }
+    final online = options?['online'] == true;
+    final cash = options?['cash'] == true;
+    final working = _busy || _step == _PayStep.verifying;
+
     return Scaffold(
       appBar: AppBar(title: Text('Paiement', style: t.headlineSmall)),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 560),
           child: _step == _PayStep.paid
-              ? _PaidView(onDone: () => context.go('/orders/${widget.orderId}'))
+              ? _PaidView(onDone: () => context.go(_orderPath))
               : async.when(
                   loading: () => const Center(child: CircularProgressIndicator()),
-                  error: (e, _) => Center(child: ErrorRetry(message: 'Commande introuvable.', onRetry: () => ref.invalidate(jsonProvider('/orders/${widget.orderId}')))),
+                  error: (e, _) => Center(child: ErrorRetry(message: 'Commande introuvable.', onRetry: () => ref.invalidate(jsonProvider(_orderPath)))),
                   data: (o) => ListView(padding: const EdgeInsets.all(20), children: [
                     for (final it in itemsOf({'items': o['items']}))
                       Padding(
@@ -350,36 +434,69 @@ class _PayOrderScreenState extends ConsumerState<PayOrderScreen> with WidgetsBin
                     Row(children: [Text('Protection acheteur', style: t.bodyMedium?.copyWith(color: LumoColors.slate)), const Spacer(),
                       Text(formatXaf(asInt(o['buyerFeeXaf'])))]),
                     const SizedBox(height: 8),
-                    Row(children: [Text('Total', style: t.titleMedium), const Spacer(),
+                    Row(children: [Text('Total en ligne', style: t.titleMedium), const Spacer(),
                       Text(formatXaf(asInt(o['totalXaf'])), style: t.headlineSmall?.copyWith(fontSize: 20))]),
-                    const SizedBox(height: 24),
-                    Text('Moyens acceptés', style: t.titleMedium?.copyWith(fontSize: 15)),
-                    const SizedBox(height: 10),
-                    // [PAYMENT PROVIDERS] : liste indicative, le choix se fait sur la page sécurisée.
-                    const Wrap(spacing: 8, runSpacing: 8, children: [
-                      _Chip('Orange Money'), _Chip('MTN Mobile Money'), _Chip('Carte bancaire · 3-D Secure'),
-                    ]),
-                    const SizedBox(height: 8),
-                    Text('Tu confirmes sur la page sécurisée du prestataire. Ton code secret et ton numéro de carte ne sont jamais saisis dans l\'app.',
-                        style: t.bodySmall),
+                    const SizedBox(height: 20),
                     if (_error != null) ...[
-                      const SizedBox(height: 16),
                       Text(_error!, style: const TextStyle(color: LumoColors.warning, fontWeight: FontWeight.w600)),
+                      const SizedBox(height: 12),
                     ],
-                    const SizedBox(height: 24),
-                    const Center(child: ProtectionBadge('Argent bloqué jusqu\'à ta confirmation')),
-                    const SizedBox(height: 10),
                     if (o['status'] != 'pending_payment')
                       Text('Cette commande n\'est plus à payer (${_statusLabels[o['status']] ?? o['status']}).', textAlign: TextAlign.center)
-                    else if (_step == _PayStep.redirected)
-                      FilledButton(onPressed: _verify, child: const Text('J\'ai payé, vérifier'))
-                    else
-                      FilledButton(
-                        onPressed: _busy || _step == _PayStep.verifying ? null : _pay,
-                        child: _busy || _step == _PayStep.verifying
-                            ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                            : Text('Payer ${formatXaf(asInt(o['totalXaf']))}'),
+                    else if (options == null)
+                      const Center(child: Padding(padding: EdgeInsets.all(16), child: CircularProgressIndicator()))
+                    else if (_step == _PayStep.waiting || _step == _PayStep.verifying) ...[
+                      _PayCard(
+                        icon: Icons.phonelink_ring_outlined,
+                        title: 'Confirme sur ton téléphone',
+                        body: 'Une demande de paiement vient d\'être envoyée. Valide-la avec ton code secret Orange Money ou MTN MoMo. '
+                            'Rien ne s\'affiche ? Ouvre le menu Mobile Money de ton opérateur pour valider la demande en attente.',
+                        child: FilledButton(
+                          onPressed: working ? null : () => _verify(),
+                          child: working
+                              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                              : const Text('J\'ai payé, vérifier'),
+                        ),
                       ),
+                      TextButton(onPressed: working ? null : () => setState(() { _step = _PayStep.ready; _error = null; }), child: const Text('Choisir un autre moyen')),
+                    ] else ...[
+                      if (online)
+                        _PayCard(
+                          icon: Icons.smartphone_rounded,
+                          title: 'Orange Money · MTN MoMo',
+                          tag: 'Protégé',
+                          body: 'Saisis ton numéro : tu reçois la demande sur ton téléphone et tu valides avec ton code secret. '
+                              'L\'argent reste bloqué jusqu\'à ta confirmation de réception.',
+                          child: Column(children: [
+                            TextField(
+                              controller: _phone, keyboardType: TextInputType.phone,
+                              decoration: const InputDecoration(labelText: 'Numéro Mobile Money', prefixText: '+237 ', hintText: '6XX XX XX XX'),
+                            ),
+                            const SizedBox(height: 12),
+                            FilledButton(
+                              onPressed: working ? null : _payMobile,
+                              child: working
+                                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                                  : Text('Payer ${formatXaf(asInt(o['totalXaf']))}'),
+                            ),
+                            TextButton(onPressed: working ? null : _payHosted, child: const Text('Autre moyen : page sécurisée du prestataire')),
+                          ]),
+                        ),
+                      if (cash)
+                        _PayCard(
+                          icon: Icons.handshake_outlined,
+                          title: 'Payer à la remise',
+                          tag: 'Sans frais',
+                          body: 'Tu paies ${formatXaf(asInt(o['itemPriceXaf']))} directement au vendeur quand tu récupères ta commande. Pas de protection acheteur.',
+                          child: OutlinedButton(onPressed: working ? null : _payCash, child: const Text('Choisir ce mode')),
+                        ),
+                      if (!online && !cash)
+                        const Text('Aucun moyen de paiement n\'est activé pour le moment. Réessaie plus tard.', textAlign: TextAlign.center),
+                      if (online) ...[
+                        const SizedBox(height: 4),
+                        Text('Ton code secret n\'est jamais saisi dans l\'application : tu le tapes uniquement dans le menu de ton opérateur.', style: t.bodySmall),
+                      ],
+                    ],
                   ]),
                 ),
         ),
@@ -388,14 +505,39 @@ class _PayOrderScreenState extends ConsumerState<PayOrderScreen> with WidgetsBin
   }
 }
 
-class _Chip extends StatelessWidget {
-  const _Chip(this.label);
-  final String label;
+class _PayCard extends StatelessWidget {
+  const _PayCard({required this.icon, required this.title, required this.body, required this.child, this.tag});
+  final IconData icon;
+  final String title, body;
+  final String? tag;
+  final Widget child;
+
   @override
   Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(border: Border.all(color: LumoColors.line), borderRadius: BorderRadius.circular(LumoRadius.pill)),
-        child: Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+        margin: const EdgeInsets.only(bottom: 14),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(border: Border.all(color: LumoColors.line), borderRadius: BorderRadius.circular(LumoRadius.panel)),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Row(children: [
+            Container(
+              width: 40, height: 40,
+              decoration: BoxDecoration(color: LumoColors.actionSoft, borderRadius: BorderRadius.circular(12)),
+              child: Icon(icon, color: LumoColors.action),
+            ),
+            const SizedBox(width: 12),
+            Expanded(child: Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700))),
+            if (tag != null)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(color: LumoColors.lime, borderRadius: BorderRadius.circular(LumoRadius.pill)),
+                child: Text(tag!, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+              ),
+          ]),
+          const SizedBox(height: 10),
+          Text(body, style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: LumoColors.slate)),
+          const SizedBox(height: 14),
+          child,
+        ]),
       );
 }
 

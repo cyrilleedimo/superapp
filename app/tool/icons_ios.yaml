@@ -1,0 +1,6 @@
+# Icônes pour le job iOS.
+flutter_launcher_icons:
+  image_path: "assets/icon.png"
+  android: false
+  ios: true
+  remove_alpha_ios: true

@@ -185,6 +185,10 @@ class _StoreScreenState extends ConsumerState<StoreScreen> {
   }
 
   Future<void> _order() async {
+    if (ref.read(sessionProvider) != SessionState.signedIn) {
+      context.push('/login?next=${Uri.encodeQueryComponent('/store/${widget.id}')}');
+      return;
+    }
     setState(() => _busy = true);
     await runAction(context, () async {
       final o = await ref.read(apiClientProvider).post('/stores/${widget.id}/orders',

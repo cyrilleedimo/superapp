@@ -1,11 +1,14 @@
-# Compile et publie l'app à chaque envoi sur main :
-#   - tests du backend sur un vrai PostgreSQL ;
+# Compile et publie Ovia à chaque envoi sur main :
+#   - tests du serveur PHP (comptes, commandes, paiement, messagerie…) ;
 #   - APK Android (Android 12+) ;
 #   - installeur Windows (Setup.exe, Inno Setup) ;
+#   - application web ;
+#   - paquet serveur prêt à déposer sur l'hébergeur (API PHP + application web) ;
+#   - build iOS non signé (preuve de compilation ; l'App Store exige un compte Apple Developer) ;
 #   - le tout attaché à une « Release » GitHub téléchargeable.
-# Variables du dépôt (Settings → Secrets and variables → Actions → Variables) :
-#   API_URL      adresse https du serveur (facultatif : réglable aussi dans l'app)
-#   APP_ORG      identifiant d'organisation Android, ex. com.monentreprise (défaut : app.ovia)
+# Variables du dépôt (Settings → Secrets and variables → Actions → Variables), toutes facultatives :
+#   API_URL      adresse https de l'API si différente de celle de server.json
+#   APP_ORG      identifiant d'organisation, ex. com.monentreprise (défaut : app.ovia)
 name: build
 
 on:
@@ -22,36 +25,26 @@ concurrency:
 
 env:
   FLUTTER_VERSION: '3.27.4'
-  APP_VERSION: 1.0.${{ github.run_number }}
+  APP_VERSION: 1.1.${{ github.run_number }}
 
 jobs:
-  backend:
+  server:
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: superapp_test
-        ports: ['5432:5432']
-        options: >-
-          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 20
-    defaults:
-      run:
-        working-directory: backend
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: shivammathur/setup-php@v2
         with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: backend/package-lock.json
-      - run: npm ci
-      - run: npm run typecheck
-      - run: npm test
-        env:
-          TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/superapp_test
+          php-version: '8.2'
+          extensions: pdo_sqlite, gd, sodium, curl, mbstring, exif
+          coverage: none
+      - name: Syntaxe PHP
+        run: find server -name '*.php' -print0 | xargs -0 -n1 php -l > /dev/null
+      - name: Tests de bout en bout (stockage fichier)
+        run: php server/tests/run.php
+      - name: Le schéma MySQL livré est à jour
+        run: |
+          php server/tools/dump-schema.php
+          git diff --exit-code server/public/_ovia/schema.mysql.sql
 
   android:
     runs-on: ubuntu-latest
@@ -125,8 +118,76 @@ jobs:
           name: windows-installer
           path: app/build/installer/*.exe
 
+  # Application web + API PHP = un seul zip à extraire dans le dossier du sous-domaine.
+  package:
+    needs: [server]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Compiler l'application web
+        working-directory: app
+        run: |
+          flutter create --platforms=web --org "${{ vars.APP_ORG || 'app.ovia' }}" --project-name superapp .
+          rm -f test/widget_test.dart
+          python3 tool/patch_platforms.py "Ovia"
+          flutter pub get
+          dart run flutter_launcher_icons -f tool/icons_web.yaml
+          flutter build web --release --build-name "$APP_VERSION" --build-number "${{ github.run_number }}"
+      - name: Assembler le paquet serveur
+        run: |
+          mkdir -p paquet dist
+          cp -a server/public/. paquet/
+          cp -a app/build/web/. paquet/
+          rm -f paquet/_ovia/config.php && rm -rf paquet/_ovia/data
+          cp server/INSTALLATION.md paquet/_ovia/INSTALLATION.md
+          test -f paquet/index.html && test -f paquet/.htaccess && test -f paquet/api/index.php && test -f paquet/_ovia/.htaccess
+          (cd paquet && zip -qr "../dist/Ovia-serveur-$APP_VERSION.zip" .)
+          unzip -l "dist/Ovia-serveur-$APP_VERSION.zip" | tail -1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: serveur
+          path: dist/Ovia-serveur-*.zip
+
+  ios:
+    runs-on: macos-latest
+    continue-on-error: true   # ne bloque jamais la publication des autres plateformes
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Générer le projet iOS
+        run: |
+          flutter create --platforms=ios --org "${{ vars.APP_ORG || 'app.ovia' }}" --project-name superapp .
+          rm -f test/widget_test.dart
+          python3 tool/patch_platforms.py "Ovia"
+      - run: flutter pub get
+      - run: dart run flutter_launcher_icons -f tool/icons_ios.yaml
+      - name: Compiler pour iPhone (sans signature)
+        run: flutter build ios --release --no-codesign --build-name "$APP_VERSION" --build-number "${{ github.run_number }}" --dart-define=API_URL="${{ vars.API_URL }}"
+      - name: Emballer (non signé — à signer avec un compte Apple Developer avant toute installation)
+        run: |
+          mkdir -p build/ipa/Payload
+          cp -R build/ios/iphoneos/Runner.app build/ipa/Payload/
+          (cd build/ipa && zip -qr "../Ovia-$APP_VERSION-ios-non-signe.ipa" Payload)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-non-signe
+          path: app/build/Ovia-*-ios-non-signe.ipa
+
   release:
-    needs: [backend, android, windows]
+    needs: [server, android, windows, package, ios]
+    if: ${{ !cancelled() && needs.android.result == 'success' && needs.windows.result == 'success' && needs.package.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -142,5 +203,7 @@ jobs:
             Version compilée automatiquement.
             - **Android 12+** : télécharge le fichier `.apk` et ouvre-le sur le téléphone (autorise « sources inconnues »).
             - **Windows 10/11** : télécharge `Ovia-Setup-….exe` et lance l'installation.
-            Au premier lancement, si l'app demande l'adresse du serveur : écran de connexion → « Serveur ».
+            - **iPhone, Mac, tout navigateur** : ouvre l'adresse du site (application web), puis « Sur l'écran d'accueil ».
+            - **Serveur** : `Ovia-serveur-….zip` s'extrait dans le dossier du sous-domaine chez l'hébergeur (guide : `_ovia/INSTALLATION.md`).
+            - Le fichier `…-ios-non-signe.ipa` n'est pas installable tel quel : il sert pour la publication App Store (compte Apple Developer requis).
           files: dist/*
