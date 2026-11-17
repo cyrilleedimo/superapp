@@ -38,8 +38,12 @@ class SessionController extends Notifier<SessionState> {
   }
 
   /// [identifier] : e-mail ou numéro de téléphone.
-  Future<void> login(String identifier, String password) async =>
-      _open(await _api.post('/auth/login', body: {'identifier': identifier, 'password': password}));
+  /// [newPassword] : seulement quand le serveur a demandé de remplacer un mot de passe provisoire.
+  Future<void> login(String identifier, String password, {String? newPassword}) async =>
+      _open(await _api.post('/auth/login', body: {
+        'identifier': identifier, 'password': password,
+        if (newPassword != null) 'newPassword': newPassword,
+      }));
 
   /// Renvoie le jeton de vérification : seul cet appareil pourra valider le code reçu par e-mail.
   Future<String> register({required String name, required String email, required String password, String? phone}) async {

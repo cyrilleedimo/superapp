@@ -33,11 +33,26 @@ function ok(string $label, bool $cond, mixed $ctx = null): void {
     $fail++;
     echo "ÉCHEC : $label " . ($ctx !== null ? json_encode($ctx, JSON_UNESCAPED_UNICODE) : '') . "\n";
 }
+/** Accès direct pour les vérifications : ajoute le préfixe des tables comme le fait le serveur. */
+final class TestPdo extends PDO {
+    public string $px = '';
+    private function p(string $sql): string { return $this->px === '' ? $sql : preg_replace('/\b(FROM|UPDATE)\s+([a-z_]+)\b/', '$1 ' . $this->px . '$2', $sql); }
+    public function prepare(string $query, array $options = []): PDOStatement|false { return parent::prepare($this->p($query), $options); }
+    public function query(string $query, ?int $fetchMode = null, mixed ...$args): PDOStatement|false { return parent::query($this->p($query)); }
+    public function exec(string $statement): int|false { return parent::exec($this->p($statement)); }
+}
 function db(): PDO {
     global $priv;
     $cfg = require "$priv/config.php";
-    if (!empty($cfg['mysql'])) { $m = $cfg['mysql']; return new PDO("mysql:host={$m['host']};port={$m['port']};dbname={$m['name']};charset=utf8mb4", $m['user'], $m['pass']); }
-    return new PDO("sqlite:$priv/data/{$cfg['db_file']}");
+    if (!empty($cfg['mysql'])) {
+        $m = $cfg['mysql'];
+        $pdo = new TestPdo("mysql:host={$m['host']};port={$m['port']};dbname={$m['name']};charset=utf8mb4", $m['user'], $m['pass']);
+        $pdo->px = $m['prefix'] ?? 'ovia_';
+        return $pdo;
+    }
+    $pdo = new TestPdo("sqlite:$priv/data/{$cfg['db_file']}");
+    $pdo->px = (string) getenv('OVIA_TEST_PREFIX');
+    return $pdo;
 }
 function lastCode(string $email): ?string {
     $st = db()->prepare('SELECT code FROM mail_outbox WHERE to_email=? AND code IS NOT NULL ORDER BY id DESC LIMIT 1');

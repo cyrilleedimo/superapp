@@ -188,7 +188,7 @@ final class Auth
 
             $isEmail = str_contains($ident, '@');
             $key = $isEmail ? mb_strtolower($ident, 'UTF-8') : (preg_replace('/[\s().-]/', '', $ident) ?? '');
-            $u = $db()->one('SELECT id, role, status, email, password_hash, locked_until FROM users WHERE ' . ($isEmail ? 'email' : 'phone') . '=?', [$key]);
+            $u = $db()->one('SELECT id, role, status, email, password_hash, locked_until, must_change_password FROM users WHERE ' . ($isEmail ? 'email' : 'phone') . '=?', [$key]);
             if (!$u) {
                 // Même durée de réponse qu'un vrai compte : on ne révèle pas quels identifiants existent.
                 Crypto::hashPassword($password);
@@ -213,6 +213,16 @@ final class Auth
             }
             $sets = 'failed_logins=0, locked_until=NULL';
             $args = [];
+            if ((int) $u['must_change_password'] === 1) {
+                // Mot de passe provisoire : il ne sert qu'à choisir le vrai. Aucune session n'est ouverte tant que ce n'est pas fait.
+                if (!is_array($raw) || !array_key_exists('newPassword', $raw)) throw new AppError(409, 'password_change_required');
+                $new = self::rawPassword($b, 'newPassword');
+                if (hash_equals($password, $new)) throw AppError::bad('weak_password', 'choisis un mot de passe différent du provisoire');
+                $db()->run('UPDATE users SET password_hash=?, must_change_password=0, failed_logins=0, locked_until=NULL, updated_at=? WHERE id=?',
+                    [Crypto::hashPassword($new), Util::now(), $u['id']]);
+                App::audit((string) $u['id'], 'auth.temp_password_replaced', 'user', (string) $u['id']);
+                return self::issueTokens((string) $u['id'], (string) $u['role'], null, $r->userAgent());
+            }
             if (Crypto::needsRehash((string) $u['password_hash']) && (defined('PASSWORD_ARGON2ID') || !str_starts_with((string) $u['password_hash'], '$argon2id$'))) {
                 $sets .= ', password_hash=?';
                 $args[] = Crypto::hashPassword($password);
@@ -273,7 +283,7 @@ final class Auth
                 $u = $db->one("SELECT id, role FROM users WHERE email=? AND status <> 'suspended'" . $db->lock(), [$email]);
                 if (!$u || !self::consumeCode($db, (string) $u['id'], 'reset_password', $code)) return null;
                 // Le code reçu par e-mail prouve que l'adresse appartient bien à la personne.
-                $db->run("UPDATE users SET password_hash=?, status='active', email_verified=1, failed_logins=0, locked_until=NULL, updated_at=? WHERE id=?",
+                $db->run("UPDATE users SET password_hash=?, must_change_password=0, status='active', email_verified=1, failed_logins=0, locked_until=NULL, updated_at=? WHERE id=?",
                     [$hash, Util::now(), $u['id']]);
                 $db->run('UPDATE refresh_tokens SET revoked_at=? WHERE user_id=? AND revoked_at IS NULL', [Util::now(), $u['id']]);
                 return $u;
@@ -345,7 +355,7 @@ final class Auth
             $uid = $r->uid();
             $u = $db()->one('SELECT password_hash FROM users WHERE id=?', [$uid]);
             if (!$u || !Crypto::verifyPassword($current, (string) $u['password_hash'])) throw AppError::unauthorized('invalid_credentials');
-            $db()->run('UPDATE users SET password_hash=?, updated_at=? WHERE id=?', [Crypto::hashPassword($new), Util::now(), $uid]);
+            $db()->run('UPDATE users SET password_hash=?, must_change_password=0, updated_at=? WHERE id=?', [Crypto::hashPassword($new), Util::now(), $uid]);
             self::revokeAll($uid);
             App::audit($uid, 'auth.password_changed', 'user', $uid);
             return self::issueTokens($uid, $r->user['role'] ?? 'user', null, $r->userAgent());

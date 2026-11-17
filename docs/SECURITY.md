@@ -30,6 +30,7 @@ Références suivies : OWASP ASVS 4 (niveau 2 visé), OWASP MASVS (mobile), PCI-
 
 - **Hébergement mutualisé** : le serveur partage une machine avec d'autres sites. Convient au pilote ; au-delà de quelques milliers d'utilisateurs actifs, passer sur un serveur dédié (VPS) et sur MySQL/PostgreSQL.
 - **Mode fichier (SQLite)** : une seule écriture à la fois. Suffisant pour démarrer ; brancher MySQL dès que l'hébergeur le permet.
+- **Mot de passe provisoire** (compte préparé dans le fichier de reprise) : il n'ouvre aucune session et doit être remplacé à la première connexion. Entre l'installation et cette première connexion, quiconque connaît le numéro et le provisoire peut prendre le compte : se connecter aussitôt après l'installation.
 - **Notifications** : dans l'application (pastille, rafraîchie toutes les 25 s) et par e-mail pour les événements importants. Pas de notification « push » quand l'application est fermée (nécessite un projet Firebase).
 - **Appels audio/vidéo** : non proposés. Ils exigent un serveur relais (TURN) impossible sur un hébergement mutualisé.
 - **Codes visibles par l'admin** (onglet E-mails) : pratique pour les essais, à désactiver avant l'ouverture au public (`pilot.show_codes`).

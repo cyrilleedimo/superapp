@@ -17,7 +17,31 @@ final class Db
 {
     private int $depth = 0;
 
-    private function __construct(public readonly PDO $pdo, public readonly string $driver) {}
+    private function __construct(public readonly PDO $pdo, public readonly string $driver, public readonly string $prefix = '') {}
+
+    /** Préfixe par défaut des tables en MySQL : Ovia peut ainsi partager une base qui contient déjà autre chose. */
+    public const DEFAULT_PREFIX = 'ovia_';
+
+    public static function cleanPrefix(mixed $p): string
+    {
+        $p = is_string($p) ? $p : self::DEFAULT_PREFIX;
+        if (!preg_match('/^[a-z][a-z0-9_]{0,19}$/', $p)) throw new \InvalidArgumentException('préfixe de tables invalide (lettres minuscules, chiffres, _ ; 20 caractères au plus)');
+        return $p;
+    }
+
+    /**
+     * Ajoute le préfixe aux noms de tables d'une requête. Seuls les noms placés juste après
+     * FROM, JOIN, INTO, UPDATE, TABLE ou ON (création d'index) sont touchés : jamais une valeur, jamais une colonne.
+     */
+    public static function prefixSql(string $sql, string $prefix): string
+    {
+        if ($prefix === '') return $sql;
+        static $rx = null;
+        $rx ??= '/\b(FROM|JOIN|INTO|UPDATE|TABLE(?:\s+IF\s+NOT\s+EXISTS)?|ON)(\s+)(' . implode('|', array_merge(self::TABLES, ['schema_migrations'])) . ')\b(?!\.)/';
+        return preg_replace($rx, '$1$2' . $prefix . '$3', $sql) ?? $sql;
+    }
+
+    public function exec(string $sql): void { $this->pdo->exec(self::prefixSql($sql, $this->prefix)); }
 
     // ------------------------------------------------------------ Connexions
     public static function sqlite(string $file): self
@@ -34,7 +58,9 @@ final class Db
         $lower = static fn ($s) => $s === null ? null : mb_strtolower((string) $s, 'UTF-8');
         if (method_exists($pdo, 'createFunction')) { $pdo->createFunction('lower', $lower, 1); }
         elseif (method_exists($pdo, 'sqliteCreateFunction')) { $pdo->sqliteCreateFunction('lower', $lower, 1); }
-        return new self($pdo, 'sqlite');
+        // Le fichier privé n'a pas besoin de préfixe ; les tests en imposent un pour vérifier toutes les requêtes.
+        $p = getenv('OVIA_TEST_PREFIX');
+        return new self($pdo, 'sqlite', is_string($p) && $p !== '' ? self::cleanPrefix($p) : '');
     }
 
     /** @param array<string,mixed> $c */
@@ -51,14 +77,14 @@ final class Db
         $pdo->exec("SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci");
         $pdo->exec("SET time_zone = '+00:00'");
         $pdo->exec("SET SESSION sql_mode = 'STRICT_TRANS_TABLES,NO_ZERO_DATE,NO_ENGINE_SUBSTITUTION'");
-        return new self($pdo, 'mysql');
+        return new self($pdo, 'mysql', self::cleanPrefix($c['prefix'] ?? self::DEFAULT_PREFIX));
     }
 
     // --------------------------------------------------------------- Requêtes
     /** @param list<mixed> $args */
     public function q(string $sql, array $args = []): PDOStatement
     {
-        $st = $this->pdo->prepare($sql);
+        $st = $this->pdo->prepare(self::prefixSql($sql, $this->prefix));
         foreach (array_values($args) as $i => $v) {
             $type = match (true) {
                 is_int($v) => PDO::PARAM_INT,
@@ -309,6 +335,9 @@ final class Db
         ], '002_exemples' => [
             // Annonces d'exemple du lancement : visibles, mais achetables seulement par un admin.
             'ALTER TABLE listings ADD COLUMN is_demo TINYINT NOT NULL DEFAULT 0',
+        ], '003_mot_de_passe_provisoire' => [
+            // Mot de passe provisoire (compte préparé à l'installation) : à remplacer dès la première connexion.
+            'ALTER TABLE users ADD COLUMN must_change_password TINYINT NOT NULL DEFAULT 0',
         ]];
     }
 
@@ -323,11 +352,23 @@ final class Db
     /** Crée ou met à niveau les tables. Sans effet si tout est déjà à jour. */
     public function migrate(): void
     {
-        $this->pdo->exec($this->ddl('CREATE TABLE IF NOT EXISTS schema_migrations (version VARCHAR(40) NOT NULL PRIMARY KEY, applied_at {DT} NOT NULL){TAIL}'));
+        if ($this->driver === 'mysql' && ($taken = $this->foreignTables()) !== []) {
+            throw new \RuntimeException('la base contient déjà des tables de ce nom, qui ne viennent pas d\'Ovia : ' . implode(', ', array_slice($taken, 0, 6)) . '. Choisis un autre préfixe.');
+        }
+        $this->exec($this->ddl('CREATE TABLE IF NOT EXISTS schema_migrations (version VARCHAR(40) NOT NULL PRIMARY KEY, applied_at {DT} NOT NULL){TAIL}'));
         $done = array_column($this->all('SELECT version FROM schema_migrations'), 'version');
         foreach (self::migrations() as $version => $statements) {
             if (in_array($version, $done, true)) continue;
-            foreach ($statements as $sql) $this->pdo->exec($this->ddl($sql));
+            foreach ($statements as $sql) {
+                try {
+                    $this->exec($this->ddl($sql));
+                } catch (PDOException $e) {
+                    // MySQL ne sait pas annuler une création de table : si une installation précédente s'est arrêtée
+                    // en route, on reprend là où elle s'était arrêtée (table, index ou colonne déjà en place).
+                    $code = (int) ($e->errorInfo[1] ?? 0);
+                    if ($this->driver !== 'mysql' || !in_array($code, [1050, 1060, 1061], true)) throw $e;
+                }
+            }
             $this->insertIgnore('schema_migrations', ['version' => $version, 'applied_at' => Util::now()]);
         }
         // Comptes du grand livre toujours présents.
@@ -338,13 +379,28 @@ final class Db
         }
     }
 
+    /**
+     * Tables portant nos noms (avec le préfixe) alors qu'Ovia n'a jamais été installé dans cette base.
+     * Si la liste n'est pas vide, on ne touche à rien : ces tables appartiennent à quelqu'un d'autre.
+     * @return list<string>
+     */
+    public function foreignTables(): array
+    {
+        if ($this->driver !== 'mysql') return [];
+        $have = array_map('strval', $this->pdo->query('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN));
+        $have = array_map('strtolower', $have);
+        if (in_array($this->prefix . 'schema_migrations', $have, true)) return []; // déjà installé ici : ce sont les nôtres
+        $ours = array_map(fn ($t) => $this->prefix . $t, self::TABLES);
+        return array_values(array_intersect($ours, $have));
+    }
+
     /** Recopie tout le contenu d'une base (le fichier) vers celle-ci (MySQL). Tout ou rien. */
     public function importFrom(self $src): int
     {
         return $this->tx(function () use ($src): int {
             $n = 0;
             foreach (self::TABLES as $t) {
-                $this->pdo->exec('DELETE FROM ' . $t); // la base cible vient d'être créée : seules les lignes d'amorçage partent
+                $this->exec('DELETE FROM ' . $t); // uniquement NOS tables (préfixées), tout juste créées : seules les lignes d'amorçage partent
                 $st = $src->pdo->query('SELECT * FROM ' . $t);
                 while ($row = $st->fetch(PDO::FETCH_ASSOC)) {
                     $this->insert($t, $row);

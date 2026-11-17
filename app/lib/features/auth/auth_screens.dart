@@ -133,13 +133,17 @@ class LoginScreen extends ConsumerStatefulWidget {
 class _LoginScreenState extends ConsumerState<LoginScreen> with _Submitting<LoginScreen> {
   final _id = TextEditingController();
   final _pwd = TextEditingController();
+  final _newPwd = TextEditingController();
+  bool _needNew = false; // le mot de passe saisi est provisoire : il faut choisir le vrai
   @override
-  void dispose() { _id.dispose(); _pwd.dispose(); super.dispose(); }
+  void dispose() { _id.dispose(); _pwd.dispose(); _newPwd.dispose(); super.dispose(); }
 
   @override
   Widget build(BuildContext context) => _AuthFrame(
-        title: 'Bon retour',
-        subtitle: 'Connecte-toi avec ton e-mail (ou ton numéro) et ton mot de passe.',
+        title: _needNew ? 'Choisis ton mot de passe' : 'Bon retour',
+        subtitle: _needNew
+            ? 'Ton mot de passe actuel est provisoire. Choisis le tien pour ouvrir ton compte.'
+            : 'Connecte-toi avec ton e-mail (ou ton numéro) et ton mot de passe.',
         onBack: () => context.go('/'),
         children: [
           TextField(
@@ -148,14 +152,18 @@ class _LoginScreenState extends ConsumerState<LoginScreen> with _Submitting<Logi
             decoration: const InputDecoration(labelText: 'E-mail ou numéro de téléphone', hintText: 'toi@gmail.com'),
           ),
           const SizedBox(height: 12),
-          _PasswordField(controller: _pwd, onSubmitted: (_) => _submit()),
+          _PasswordField(controller: _pwd, label: _needNew ? 'Mot de passe provisoire' : 'Mot de passe', onSubmitted: (_) => _submit()),
+          if (_needNew) ...[
+            const SizedBox(height: 12),
+            _PasswordField(controller: _newPwd, label: 'Nouveau mot de passe', helper: '8 caractères minimum', isNew: true, onSubmitted: (_) => _submit()),
+          ],
           Align(
             alignment: Alignment.centerRight,
             child: TextButton(onPressed: () => context.go(_withNext('/forgot', widget.next)), child: const Text('Mot de passe oublié ?')),
           ),
           const SizedBox(height: 4),
           _errorText(error),
-          FilledButton(onPressed: busy ? null : _submit, child: const Text('Se connecter')),
+          FilledButton(onPressed: busy ? null : _submit, child: Text(_needNew ? 'Enregistrer et me connecter' : 'Se connecter')),
           const SizedBox(height: 12),
           OutlinedButton(onPressed: () => context.go(_withNext('/register', widget.next)), child: const Text('Créer un compte')),
           const SizedBox(height: 12),
@@ -166,11 +174,17 @@ class _LoginScreenState extends ConsumerState<LoginScreen> with _Submitting<Logi
   void _submit() {
     final raw = _id.text.trim();
     if (raw.isEmpty || _pwd.text.isEmpty) { setState(() => error = 'Saisis ton identifiant et ton mot de passe.'); return; }
+    if (_needNew && _newPwd.text.length < 8) { setState(() => error = 'Le nouveau mot de passe doit faire au moins 8 caractères.'); return; }
     final identifier = raw.contains('@') ? raw : toE164(raw);
     run(() async {
       try {
-        await ref.read(sessionProvider.notifier).login(identifier, _pwd.text);
+        await ref.read(sessionProvider.notifier).login(identifier, _pwd.text, newPassword: _needNew ? _newPwd.text : null);
       } on ApiException catch (e) {
+        // Mot de passe provisoire accepté : on demande le vrai avant d'ouvrir la session.
+        if (e.code == 'password_change_required' && mounted) {
+          setState(() => _needNew = true);
+          return;
+        }
         // Bon mot de passe mais e-mail jamais confirmé : un code vient d'être renvoyé.
         if (e.code == 'email_not_verified' && mounted) {
           final email = (e.message != null && e.message!.contains('@')) ? e.message! : raw;

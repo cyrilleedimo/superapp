@@ -23,6 +23,11 @@ n'est nécessaire pour démarrer. Compte 10 minutes.
 Dépose le fichier **`comptes-importes.json`** (reçu à part, jamais publié) dans le dossier **`_ovia`**.
 Au premier appel, le serveur crée les comptes et les réglages qu'il contient, puis **supprime le fichier**.
 
+Un compte du fichier peut porter un **mot de passe provisoire** (`temp_password`) et un e-mail déjà connu
+(`email`, `email_verified`). Le provisoire n'ouvre aucune session : à la première connexion, l'application
+demande de choisir le vrai mot de passe (8 caractères minimum), puis le provisoire cesse de fonctionner.
+Connecte-toi donc **tout de suite après l'installation**, avant de donner l'adresse à qui que ce soit.
+
 ## 4. Vérifier
 Ouvre `https://app.itsscm.org/verif.php` : tout ce qui est indispensable doit être vert.
 Ensuite, supprime `verif.php`.
@@ -51,10 +56,19 @@ l'accueil ne soit pas vide. Elles portent la mention « Exemple », seul un admi
 et elles sont **retirées automatiquement** dès que 20 vraies annonces ont été publiées (seuil modifiable dans Réglages,
 où un bouton permet aussi de les retirer ou de les remettre à la main).
 
-## 7. Passer plus tard à une base MySQL
-Quand l'hébergeur te donne une base : Administration → Réglages → **Brancher MySQL**, saisis les accès.
-Le serveur teste la connexion, recopie toutes les données du fichier vers la base, vérifie le compte de lignes,
-puis supprime le fichier. Rien à faire à la main. (`_ovia/schema.mysql.sql` recrée les tables si tu préfères phpMyAdmin.)
+## 7. Brancher une base MySQL (même si elle contient déjà autre chose)
+Administration → Réglages → **Brancher MySQL**, saisis le serveur, le nom de la base, l'utilisateur et le mot de passe.
+
+- **La base peut être partagée** avec un autre site. Ovia n'y crée que ses propres tables, toutes préfixées
+  (`ovia_users`, `ovia_orders`…). Il ne modifie, ne vide et ne supprime aucune autre table.
+- Avant d'enregistrer quoi que ce soit, le serveur vérifie la connexion, vérifie qu'aucune table existante ne porte
+  déjà un de ses noms, puis crée ses tables. Si une étape échoue, **rien ne change** et tu restes sur le fichier.
+- Ensuite il recopie les données du fichier vers la base, compare le nombre de lignes, puis supprime le fichier.
+- Le préfixe est modifiable dans la fenêtre (par défaut `ovia_`).
+- L'utilisateur MySQL doit avoir le droit de créer des tables dans cette base.
+
+`_ovia/schema.mysql.sql` recrée les mêmes tables à la main (phpMyAdmin → Importer) si tu préfères. Fais quand même
+une **exportation de ta base dans phpMyAdmin avant** : c'est la seule vraie assurance, quel que soit le logiciel.
 
 ## 8. Mettre à jour
 Envoie le nouveau zip et extrais-le par-dessus. `_ovia/config.php` et `_ovia/data/` ne sont pas dans le zip :

@@ -274,8 +274,15 @@ final class App
                 if (!is_file($file)) throw new AppError(503, 'database_unavailable');
                 return self::openFile($file);
             }
-            self::ensureSchema($db);
-            if (is_file($file)) self::switchToMysql($db, $file);
+            try {
+                self::ensureSchema($db);
+                if (is_file($file)) self::switchToMysql($db, $file);
+            } catch (\Throwable $e) {
+                error_log('Ovia : préparation de MySQL impossible — ' . $e->getMessage());
+                // Le fichier est toujours là : rien n'a été basculé, on continue dessus plutôt que de tomber en panne.
+                if (!is_file($file)) throw $e;
+                return self::openFile($file);
+            }
             return $db;
         }
         return self::openFile($file);
@@ -336,9 +343,13 @@ final class App
         $j = json_decode((string) file_get_contents($file), true);
         if (!is_array($j)) { error_log('Ovia : comptes-importes.json illisible, fichier laissé en place'); return; }
         foreach ((array) ($j['users'] ?? []) as $u) {
-            if (!is_array($u) || !preg_match(In::UUID, (string) ($u['id'] ?? '')) || empty($u['password_hash'])) continue;
+            if (!is_array($u) || !preg_match(In::UUID, (string) ($u['id'] ?? ''))) continue;
+            // Mot de passe provisoire en clair (ex. compte admin préparé) : accepté une seule fois, à changer à la première connexion.
+            $temp = is_string($u['temp_password'] ?? null) && $u['temp_password'] !== '' && strlen($u['temp_password']) <= 128;
+            if ($temp) $u['password_hash'] = Crypto::hashPassword($u['temp_password']);
+            if (empty($u['password_hash'])) continue;
             $phone = isset($u['phone']) && preg_match(In::PHONE, (string) $u['phone']) ? (string) $u['phone'] : null;
-            $email = !empty($u['email']) ? mb_strtolower((string) $u['email']) : null;
+            $email = !empty($u['email']) && filter_var($u['email'], FILTER_VALIDATE_EMAIL) ? mb_strtolower((string) $u['email']) : null;
             if ($db->one('SELECT id FROM users WHERE id=? OR (phone IS NOT NULL AND phone=?) OR (email IS NOT NULL AND email=?)', [$u['id'], $phone, $email])) continue;
             $ts = isset($u['created_at']) ? strtotime((string) $u['created_at']) : false;
             $db->insert('users', [
@@ -346,7 +357,8 @@ final class App
                 'display_name' => Util::clip((string) ($u['display_name'] ?? 'Utilisateur'), 60),
                 'password_hash' => (string) $u['password_hash'], 'status' => 'active',
                 'role' => in_array($u['role'] ?? '', ['user', 'merchant', 'driver', 'admin'], true) ? $u['role'] : 'user',
-                'email_verified' => 0, 'failed_logins' => 0, 'locked_until' => null,
+                'email_verified' => $email !== null && !empty($u['email_verified']) ? 1 : 0, 'failed_logins' => 0, 'locked_until' => null,
+                'must_change_password' => $temp ? 1 : 0,
                 'created_at' => $ts ? gmdate('Y-m-d H:i:s', $ts) : Util::now(), 'updated_at' => Util::now(),
             ]);
         }

@@ -701,14 +701,16 @@ class _AdminSettings extends ConsumerWidget {
     final name = TextEditingController();
     final user = TextEditingController();
     final pass = TextEditingController();
+    final prefix = TextEditingController(text: 'ovia_');
     final ok = await showDialog<bool>(
       context: context,
       builder: (d) => AlertDialog(
         title: const Text('Brancher une base MySQL'),
         content: SingleChildScrollView(
           child: Column(mainAxisSize: MainAxisSize.min, children: [
-            const Text('Crée d\'abord la base et son utilisateur chez l\'hébergeur (DirectAdmin → Gestion MySQL). '
-                'Les données actuelles y seront recopiées automatiquement, puis le fichier provisoire sera supprimé.'),
+            const Text('Indique une base de ton hébergeur (DirectAdmin → Gestion MySQL). Elle peut déjà contenir autre chose : '
+                'Ovia y ajoute seulement ses propres tables, reconnaissables à leur préfixe, sans toucher au reste. '
+                'Les données actuelles y sont recopiées, puis le fichier provisoire est supprimé.'),
             const SizedBox(height: 12),
             TextField(controller: host, decoration: const InputDecoration(labelText: 'Serveur')),
             const SizedBox(height: 8),
@@ -717,6 +719,9 @@ class _AdminSettings extends ConsumerWidget {
             TextField(controller: user, autocorrect: false, decoration: const InputDecoration(labelText: 'Utilisateur')),
             const SizedBox(height: 8),
             TextField(controller: pass, obscureText: true, decoration: const InputDecoration(labelText: 'Mot de passe')),
+            const SizedBox(height: 8),
+            TextField(controller: prefix, autocorrect: false,
+                decoration: const InputDecoration(labelText: 'Préfixe des tables', helperText: 'Les tables s\'appelleront ovia_users, ovia_orders…')),
           ]),
         ),
         actions: [
@@ -727,11 +732,11 @@ class _AdminSettings extends ConsumerWidget {
     );
     if (ok == true && context.mounted) {
       final done = await runAction(context, () => ref.read(apiClientProvider).post('/admin/database',
-          body: {'host': host.text.trim(), 'name': name.text.trim(), 'user': user.text.trim(), 'pass': pass.text}),
+          body: {'host': host.text.trim(), 'name': name.text.trim(), 'user': user.text.trim(), 'pass': pass.text, 'prefix': prefix.text.trim()}),
           success: 'Base branchée. Les données ont été basculées.');
       if (done) ref.invalidate(jsonProvider(_sysPath));
     }
-    for (final c in [host, name, user, pass]) { c.dispose(); }
+    for (final c in [host, name, user, pass, prefix]) { c.dispose(); }
   }
 
   @override

@@ -155,15 +155,31 @@ final class Admin
             $raw = json_decode($r->raw, true) ?: [];
             $cfg = ['host' => $b->str('host', 1, 190, 'localhost'), 'port' => $b->int('port', 1, 65535, 3306), 'name' => $b->str('name', 1, 64),
                     'user' => $b->str('user', 1, 64), 'pass' => is_string($raw['pass'] ?? null) ? $raw['pass'] : ''];
+            try {
+                $cfg['prefix'] = Db::cleanPrefix($b->has('prefix') && $b->str('prefix', 0, 20) !== '' ? $b->str('prefix', 1, 20) : Db::DEFAULT_PREFIX);
+            } catch (\InvalidArgumentException $e) {
+                throw AppError::bad('validation_failed', 'prefix: ' . $e->getMessage());
+            }
             if (!extension_loaded('pdo_mysql')) throw new AppError(503, 'mysql_unavailable', 'extension PHP pdo_mysql absente');
             try {
-                Db::mysql($cfg)->val('SELECT 1');
+                $candidate = Db::mysql($cfg);
+                $candidate->val('SELECT 1');
             } catch (\Throwable $e) {
                 throw AppError::bad('database_unreachable', Util::clip($e->getMessage(), 200));
             }
+            // La base peut déjà contenir autre chose : Ovia n'y ajoute que ses tables préfixées, sans rien modifier d'autre.
+            // On les crée tout de suite : si ça échoue (nom déjà pris, droits insuffisants), rien n'est enregistré.
+            if (($taken = $candidate->foreignTables()) !== []) {
+                throw new AppError(409, 'prefix_taken', 'tables déjà présentes : ' . implode(', ', array_slice($taken, 0, 6)));
+            }
+            try {
+                $candidate->migrate();
+            } catch (\Throwable $e) {
+                throw AppError::bad('database_not_writable', Util::clip($e->getMessage(), 200));
+            }
             App::writeConfig(['mysql' => $cfg] + App::$config);
             App::audit($r->uid(), 'database.configured', 'system');
-            return ['ok' => true];
+            return ['ok' => true, 'prefix' => $cfg['prefix']];
         }, $admin + ['limit' => [5, 60]]);
 
         // ---------------------------------------------------------- E-mails
