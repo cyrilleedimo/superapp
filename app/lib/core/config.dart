@@ -11,7 +11,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 /// Sous-domaine de l'hébergeur où le serveur Ovia est installé.
-const kDefaultApiUrl = 'https://app.itsscm.org/api';
+const kDefaultApiUrl = 'https://oviaapp.itsscm.org/api';
 const _remoteConfigUrl = 'https://raw.githubusercontent.com/cyrilleedimo/superapp/main/server.json';
 
 class AppConfig {

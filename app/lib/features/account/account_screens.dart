@@ -610,7 +610,7 @@ const _settingGroups = <String, List<_Setting>>{
   ],
   'Général': [
     _Setting('app.name', 'Nom affiché dans les e-mails'),
-    _Setting('app.public_url', 'Adresse publique du site', help: 'Vide = détectée automatiquement. Ex. https://app.itsscm.org'),
+    _Setting('app.public_url', 'Adresse publique du site', help: 'Vide = détectée automatiquement. Ex. https://oviaapp.itsscm.org'),
   ],
 };
 

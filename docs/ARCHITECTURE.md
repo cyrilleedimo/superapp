@@ -26,7 +26,7 @@
 
 **Serveur : PHP 8.1+ sans dépendance**, dans `server/`. Pourquoi ce choix, après un premier serveur Node.js/PostgreSQL hébergé sur un PC :
 - l'hébergement disponible est un mutualisé DirectAdmin : PHP y tourne en permanence, sans processus à surveiller ni tunnel ;
-- l'adresse ne change plus (`https://app.itsscm.org`) et le serveur reste en ligne PC éteint ;
+- l'adresse ne change plus (`https://oviaapp.itsscm.org`) et le serveur reste en ligne PC éteint ;
 - aucune base n'est exigée au départ : les données vivent dans un fichier privé (SQLite), puis basculent vers MySQL sur simple saisie des accès. En MySQL, toutes les tables portent un préfixe (`ovia_` par défaut) : la base peut être partagée avec un autre site sans que ses tables soient touchées.
 
 ## 3. Architecture
@@ -35,7 +35,7 @@
  Android · iOS · Windows · Web (Flutter)
         │ HTTPS, JWT court + jeton de rafraîchissement rotatif
         ▼
- https://app.itsscm.org
+ https://oviaapp.itsscm.org
    ├── index.html …            application web (même origine que l'API)
    ├── api/index.php           point d'entrée unique de l'API
    └── _ovia/  (privé)         src/ · config.php · data/ (fichier de données, photos, journal)

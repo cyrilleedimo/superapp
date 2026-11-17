@@ -4,15 +4,15 @@ Le serveur tient dans **un seul zip** : l'API (PHP) et l'application web. Aucune
 n'est nécessaire pour démarrer. Compte 10 minutes.
 
 ## 1. Créer l'adresse
-1. DirectAdmin → **Gestion des sous-domaines** → ajoute `app` → l'adresse sera `https://app.itsscm.org`.
-2. DirectAdmin → **Certificats SSL** → **Let's Encrypt** → coche `app.itsscm.org` → enregistre. Attends quelques minutes.
+1. DirectAdmin → **Gestion des sous-domaines** → ajoute `oviaapp` → l'adresse sera `https://oviaapp.itsscm.org`.
+2. DirectAdmin → **Certificats SSL** → **Let's Encrypt** → coche `oviaapp.itsscm.org` → enregistre. Attends quelques minutes.
 3. DirectAdmin → **Sélecteur de version PHP** → **8.1 ou plus récent** pour ce sous-domaine.
 
-> Une autre adresse que `app.itsscm.org` ? C'est possible : modifie ensuite la ligne `apiUrl`
+> Une autre adresse que `oviaapp.itsscm.org` ? C'est possible : modifie ensuite la ligne `apiUrl`
 > du fichier `server.json` à la racine du dépôt GitHub. Les applications déjà installées suivront.
 
 ## 2. Déposer les fichiers
-1. **Gestionnaire de fichiers** → ouvre le dossier du sous-domaine (`domains/app.itsscm.org/public_html`).
+1. **Gestionnaire de fichiers** → ouvre le dossier du sous-domaine (`domains/oviaapp.itsscm.org/public_html`).
    S'il contient un `index.html` par défaut de l'hébergeur, supprime-le.
 2. **Envoyer** `Ovia-serveur-x.y.z.zip` → clic droit → **Extraire** ici.
 3. **Supprime le zip** du dossier.
@@ -29,11 +29,11 @@ demande de choisir le vrai mot de passe (8 caractères minimum), puis le proviso
 Connecte-toi donc **tout de suite après l'installation**, avant de donner l'adresse à qui que ce soit.
 
 ## 4. Vérifier
-Ouvre `https://app.itsscm.org/verif.php` : tout ce qui est indispensable doit être vert.
+Ouvre `https://oviaapp.itsscm.org/verif.php` : tout ce qui est indispensable doit être vert.
 Ensuite, supprime `verif.php`.
 
 ## 5. Premier lancement
-- Ouvre `https://app.itsscm.org` (ou l'application Android / Windows).
+- Ouvre `https://oviaapp.itsscm.org` (ou l'application Android / Windows).
 - Les comptes repris se connectent avec **leur numéro et leur ancien mot de passe**, puis ajoutent leur e-mail.
 - Sans fichier de reprise : le **premier compte créé** devient l'administrateur.
 
@@ -48,7 +48,7 @@ Ensuite, supprime `verif.php`.
 | Clé Google AI Studio | pour « Décrire avec l'IA » |
 
 Dans le tableau de bord Notch Pay, colle comme **adresse de webhook** celle affichée en haut de l'onglet Réglages
-(`https://app.itsscm.org/api/webhooks/payments`).
+(`https://oviaapp.itsscm.org/api/webhooks/payments`).
 
 ## Annonces d'exemple
 Au premier lancement, 13 annonces d'exemple (photos libres de droits, licence CC0) s'installent toutes seules pour que
